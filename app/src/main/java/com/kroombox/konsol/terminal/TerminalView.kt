@@ -60,8 +60,10 @@ class TerminalView(context: Context) : View(context) {
         typeface = Typeface.MONOSPACE
     }
     private val bgPaint = Paint()
-    private val regular: Typeface = Typeface.MONOSPACE
-    private val bold: Typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+    private var regular: Typeface = Typeface.MONOSPACE
+    private var bold: Typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+    private var fontKey: String? = null
+    private var ligatures = false
 
     var fontSizeSp: Float = 13f
         set(value) {
@@ -99,7 +101,25 @@ class TerminalView(context: Context) : View(context) {
         applyFont()
     }
 
+    /**
+     * Ganti font terminal. [key] dipakai untuk menghindari pengukuran ulang bila font tidak berubah.
+     * Ligatur dimatikan secara default agar setiap karakter tetap terlihat apa adanya.
+     */
+    fun setFont(key: String, regularTf: Typeface, boldTf: Typeface, enableLigatures: Boolean) {
+        if (key == fontKey && enableLigatures == ligatures) return
+        fontKey = key
+        ligatures = enableLigatures
+        regular = regularTf
+        bold = boldTf
+        textPaint.typeface = regularTf
+        textPaint.fontFeatureSettings = if (enableLigatures) null else "'liga' 0, 'calt' 0, 'dlig' 0"
+        applyFont()
+        updateSize()
+        invalidate()
+    }
+
     private fun applyFont() {
+        textPaint.typeface = regular
         textPaint.textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, fontSizeSp, resources.displayMetrics)
         cellW = textPaint.measureText("M")
         val fm = textPaint.fontMetrics

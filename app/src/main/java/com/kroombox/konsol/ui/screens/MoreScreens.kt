@@ -25,10 +25,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
@@ -57,12 +59,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kroombox.konsol.BuildConfig
 import com.kroombox.konsol.KonsolApp
 import com.kroombox.konsol.data.AppSettings
+import com.kroombox.konsol.data.CustomFont
+import com.kroombox.konsol.terminal.TerminalFonts
 import com.kroombox.konsol.terminal.TerminalTheme
 import com.kroombox.konsol.ui.Nav
 import com.kroombox.konsol.ui.components.AppCard
@@ -176,7 +181,10 @@ fun SettingsScreen(nav: Nav) {
                 TerminalTheme.all.forEach { t -> ThemePreview(t, selected = t.id == s.themeId) { vault.updateSettings { it.copy(themeId = t.id) } } }
             }
 
-            SectionHeader("Huruf")
+            SectionHeader("Font terminal")
+            FontSection(s)
+
+            SectionHeader("Ukuran huruf")
             AppCard {
                 Text("Ukuran: ${s.fontSizeSp.toInt()} sp", style = MaterialTheme.typography.bodyLarge)
                 Slider(
@@ -294,6 +302,110 @@ fun KnownHostsScreen(nav: Nav) {
             message = "Saat konek berikutnya ke ${k.hostPort}, Anda akan diminta memverifikasi sidik jari lagi.",
             confirmText = "Lupakan", danger = true,
             onConfirm = { vault.deleteKnownHost(k.hostPort, k.keyType) },
+            onDismiss = { deleting = null },
+        )
+    }
+}
+
+@Composable
+private fun FontSection(s: AppSettings) {
+    val context = LocalContext.current
+    val vault = KonsolApp.container.vault
+    var message by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf<CustomFont?>(null) }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            message = try {
+                val name = SftpController.displayName(context.contentResolver, uri)
+                val r = TerminalFonts.import(context, uri, name)
+                vault.updateSettings { it.copy(customFonts = it.customFonts + r.font, fontId = r.font.id) }
+                r.warning ?: "Font \"${r.font.name}\" ditambahkan dan dipakai."
+            } catch (e: Exception) {
+                "Gagal impor font: ${e.message}"
+            }
+        }
+    }
+    AppCard(contentPadding = PaddingValues(8.dp)) {
+        TerminalFonts.options(s).forEach { opt ->
+            val loaded = remember(opt.id) { TerminalFonts.load(context, s, opt.id) }
+            val family = remember(loaded) { FontFamily(loaded.regular) }
+            val selected = opt.id == s.fontId
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (selected) Palette.SurfaceHighest else Color.Transparent)
+                    .clickable { vault.updateSettings { it.copy(fontId = opt.id) } }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(opt.name, style = MaterialTheme.typography.titleSmall)
+                        if (opt.ligatures && opt.custom == null) {
+                            Spacer(Modifier.width(8.dp))
+                            Tag("ligatur", Palette.Blue)
+                        }
+                        if (opt.custom != null) {
+                            Spacer(Modifier.width(8.dp))
+                            Tag("impor", Palette.TextDim)
+                        }
+                    }
+                    Text(
+                        "fun main() => 0O 1lI != >= -> {}",
+                        fontFamily = family,
+                        fontSize = 14.sp,
+                        style = TextStyle(fontFeatureSettings = if (s.ligatures) null else "'liga' 0, 'calt' 0"),
+                        color = if (selected) Palette.Accent else Palette.Text,
+                        maxLines = 1,
+                    )
+                }
+                if (opt.custom != null) {
+                    IconButton(onClick = { deleting = opt.custom }) { Icon(Icons.Rounded.Delete, "Hapus font", tint = Palette.TextDim) }
+                } else if (selected) {
+                    Icon(Icons.Rounded.Check, null, tint = Palette.Accent)
+                }
+            }
+        }
+        LabeledSwitch(
+            "Ligatur",
+            "Gabungkan -> != => dsb menjadi simbol (JetBrains Mono, Fira Code, Cascadia Code).",
+            s.ligatures,
+        ) { v -> vault.updateSettings { it.copy(ligatures = v) } }
+        TextButton(onClick = {
+            importer.launch(arrayOf("font/ttf", "font/otf", "font/*", "application/x-font-ttf", "application/x-font-otf", "application/octet-stream", "*/*"))
+        }) {
+            Icon(Icons.Rounded.FontDownload, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Impor font (.ttf / .otf)")
+        }
+        message?.let {
+            Text(
+                it, style = MaterialTheme.typography.bodySmall,
+                color = if (it.startsWith("Gagal")) Palette.Danger else if (it.contains("tidak monospace")) Palette.Warn else Palette.Accent,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
+        Text(
+            "Font bawaan berlisensi SIL OFL / MIT. Gunakan font monospace (mis. Nerd Font) agar kolom rata.",
+            style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+        )
+    }
+    deleting?.let { f ->
+        ConfirmDialog(
+            title = "Hapus font?",
+            message = "\"${f.name}\" akan dihapus dari aplikasi.",
+            confirmText = "Hapus", danger = true,
+            onConfirm = {
+                TerminalFonts.delete(context, f)
+                vault.updateSettings { st ->
+                    st.copy(
+                        customFonts = st.customFonts.filterNot { it.id == f.id },
+                        fontId = if (st.fontId == f.id) TerminalFonts.DEFAULT_ID else st.fontId,
+                    )
+                }
+            },
             onDismiss = { deleting = null },
         )
     }

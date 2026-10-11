@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Palette
@@ -84,6 +85,7 @@ import com.kroombox.konsol.ssh.TerminalSession
 import com.kroombox.konsol.terminal.Mods
 import com.kroombox.konsol.terminal.TermKey
 import com.kroombox.konsol.terminal.TerminalClient
+import com.kroombox.konsol.terminal.TerminalFonts
 import com.kroombox.konsol.terminal.TerminalTheme
 import com.kroombox.konsol.terminal.TerminalView
 import com.kroombox.konsol.ui.Nav
@@ -117,6 +119,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
     }
 
     val theme = TerminalTheme.byId(settings.themeId)
+    val font = remember(settings.fontId, settings.customFonts) { TerminalFonts.load(context, settings) }
     var fontSize by remember { mutableFloatStateOf(settings.fontSizeSp) }
     LaunchedEffect(fontSize) {
         delay(800)
@@ -169,6 +172,16 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     val next = all[(all.indexOf(theme) + 1) % all.size]
                     vault.updateSettings { it.copy(themeId = next.id) }
                 })
+                DropdownMenuItem(
+                    text = { Text("Font: ${TerminalFonts.option(settings).name}") },
+                    leadingIcon = { Icon(Icons.Rounded.FontDownload, null) },
+                    onClick = {
+                        val all = TerminalFonts.options(settings)
+                        val idx = all.indexOfFirst { it.id == settings.fontId }
+                        val next = all[(idx + 1).mod(all.size)]
+                        vault.updateSettings { it.copy(fontId = next.id) }
+                    },
+                )
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("SFTP") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = {
                     dismiss(); nav.sftp(current.host.id)
@@ -212,6 +225,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                             setPadding(8, 4, 8, 4)
                             this.theme = theme
                             fontSizeSp = fontSize
+                            setFont(font.id, font.regular, font.bold, settings.ligatures)
                             stickyModsProvider = { stickyMods }
                             onStickyModsConsumed = { stickyMods = 0 }
                             client = object : TerminalClient {
@@ -227,6 +241,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     },
                     update = { v ->
                         v.theme = theme
+                        v.setFont(font.id, font.regular, font.bold, settings.ligatures)
                         if (v.fontSizeSp != fontSize) v.fontSizeSp = fontSize
                     },
                     modifier = Modifier.fillMaxSize(),

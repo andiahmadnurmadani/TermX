@@ -99,6 +99,11 @@ data class ForwardRule(
 data class AppSettings(
     val themeId: String = "midnight",
     val fontSizeSp: Float = 13f,
+    /** Font terminal: id bawaan (jetbrains_mono, fira_code, cascadia_code, hack, system) atau id font impor. */
+    val fontId: String = "jetbrains_mono",
+    /** Ligatur (mis. -> != => menjadi simbol) untuk font yang mendukung. */
+    val ligatures: Boolean = false,
+    val customFonts: List<CustomFont> = emptyList(),
     val scrollbackLines: Int = 5000,
     val keepScreenOn: Boolean = true,
     val vibrateOnBell: Boolean = true,
@@ -110,6 +115,15 @@ data class AppSettings(
         const val DEFAULT_EXTRA_KEYS = "ESC TAB CTRL ALT / - | ~ UP DOWN LEFT RIGHT HOME END PGUP PGDN"
     }
 }
+
+/** Font yang diimpor pengguna; file disimpan di filesDir/fonts. */
+@Serializable
+data class CustomFont(
+    val id: String = newId(),
+    val name: String,
+    val regularFile: String,
+    val boldFile: String? = null,
+)
 
 @Serializable
 data class VaultData(

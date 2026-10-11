@@ -13,6 +13,7 @@ layar mati, atau aplikasi ditutup. Saat tersambung lagi, aplikasi otomatis masuk
 | Area | Isi |
 |---|---|
 | **Host** | Daftar host dengan grup, tag, warna, pencarian; duplikat; jump host (bastion); keep-alive; perintah awal |
+| **Font** | JetBrains Mono (default), Fira Code, Cascadia Code, Hack, monospace sistem, plus **impor font sendiri (.ttf/.otf, mis. Nerd Font)**; pratinjau di Pengaturan; ligatur bisa dinyalakan; ganti cepat dari menu terminal |
 | **Terminal** | Emulator xterm-256color + truecolor buatan sendiri (alt screen, scroll region, mouse SGR, bracketed paste, OSC title/clipboard), multi-tab, pinch-zoom, seleksi & salin, bar tombol tambahan (CTRL/ALT sticky, panah, F1–F12, dapat diatur), 5 tema |
 | **Sesi persisten** | Attach otomatis ke `tmux new -A`; mouse tmux untuk menggulir riwayat dengan geser; auto-reconnect dengan backoff + reaksi saat jaringan berganti; daftar/attach/akhiri sesi tmux di server; perintah awal hanya dijalankan saat sesi baru dibuat |
 | **Latar belakang** | Foreground service + wake/wifi lock menjaga koneksi saat aplikasi di belakang; notifikasi dengan tombol "Putuskan semua" |
@@ -69,6 +70,11 @@ app/src/main/java/com/kroombox/konsol/
 ```
 
 Unit test JVM (`app/src/test`) mencakup emulator terminal, encoder tombol, format kunci, perintah tmux, dan parser statistik.
+
+## Lisensi font
+
+Font bawaan disertakan sesuai lisensinya (teks lisensi di `app/src/main/assets/licenses/`):
+JetBrains Mono, Fira Code, Cascadia Code — SIL Open Font License 1.1; Hack — MIT + Bitstream Vera.
 
 ## Catatan
 
