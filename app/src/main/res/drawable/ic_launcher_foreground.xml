@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ikon orisinal: prompt ">_" di dalam bingkai membulat. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF3DDC97"
+        android:strokeWidth="4"
+        android:pathData="M34,32 L74,32 Q80,32 80,38 L80,70 Q80,76 74,76 L34,76 Q28,76 28,70 L28,38 Q28,32 34,32 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF3DDC97"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M39,45 L49,54 L39,63" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFE6EDF3"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M54,64 L68,64" />
+</vector>
