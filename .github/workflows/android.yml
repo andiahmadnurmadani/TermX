@@ -1,0 +1,84 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Fetch bundled fonts (bila belum ada di repo)
+        run: bash scripts/fetch-fonts.sh
+
+      - name: Unit test + build debug APK
+        id: build
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain testDebugUnitTest assembleDebug 2>&1 | tee build.log
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termx-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish pre-release "latest-debug"
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          cp "$APK" termx-debug.apk
+          gh release delete latest-debug -y --cleanup-tag || true
+          gh release create latest-debug termx-debug.apk \
+            --prerelease --target "${GITHUB_SHA}" \
+            --title "Debug build ${GITHUB_SHA::7}" \
+            --notes "APK debug otomatis dari commit ${GITHUB_SHA}. Pasang di Android 8.0+ (izinkan instal dari sumber tidak dikenal)."
+
+      - name: Save build log to branch ci-logs
+        if: always()
+        run: |
+          {
+            echo "status: ${{ steps.build.outcome }}"
+            echo "commit: ${GITHUB_SHA}"
+            echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "===== ERRORS (e:/error:/FAILURE) ====="
+            grep -nE "^e: |error:|FAILURE|What went wrong|Could not|Unresolved|> Task .*FAILED|AAPT|Execution failed" build.log | head -200 || true
+            echo
+            echo "===== TAIL 300 ====="
+            tail -n 300 build.log || true
+          } > /tmp/build-log.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin ci-logs || true
+          git switch --orphan ci-logs-tmp
+          git rm -rf --quiet . || true
+          cp /tmp/build-log.txt build-log.txt
+          git add build-log.txt
+          git commit -m "build log ${GITHUB_SHA::7} (${{ steps.build.outcome }})"
+          git push -f origin HEAD:ci-logs
