@@ -140,6 +140,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
     var selecting by remember { mutableStateOf(false) }
     var showSnippets by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
+    var switcherTab by remember { mutableIntStateOf(0) }
     var confirmKill by remember { mutableStateOf<TerminalSession?>(null) }
     val viewHolder = remember { arrayOfNulls<TerminalView>(1) }
     val uiScope = rememberCoroutineScope()
@@ -161,8 +162,9 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             sessions = sessions,
             current = current,
             onBack = { nav.back() },
-            onOpenSessions = { showSwitcher = true },
-            onSnippets = { showSnippets = true },
+            onOpenSessions = { switcherTab = 0; showSwitcher = true },
+            onNewSession = { switcherTab = 1; showSwitcher = true },
+            onCloseSession = { mgr.closeTerminal(current.id) },
             menu = { dismiss ->
                 val view = viewHolder[0]
                 DropdownMenuItem(text = { Text("Snippet") }, leadingIcon = { Icon(Icons.Rounded.Bolt, null, tint = Palette.Warn) }, onClick = {
@@ -356,6 +358,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     showSwitcher = false
                     mgr.openTerminal(hostId, tmuxOverride = name, loadHistory = true)?.let { selectedId = it.id }
                 },
+                initialTab = switcherTab,
             )
         }
     }
@@ -391,7 +394,8 @@ private fun TerminalTopBar(
     current: TerminalSession,
     onBack: () -> Unit,
     onOpenSessions: () -> Unit,
-    onSnippets: () -> Unit,
+    onNewSession: () -> Unit,
+    onCloseSession: () -> Unit,
     menu: @Composable (dismiss: () -> Unit) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -421,14 +425,14 @@ private fun TerminalTopBar(
                     style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            Icon(Icons.Rounded.ExpandMore, "Sesi", tint = Palette.TextDim)
-        }
-        IconButton(onClick = onOpenSessions) {
-            BadgedBox(badge = { Badge(containerColor = Palette.Accent, contentColor = Palette.Bg) { Text("${sessions.size}") } }) {
-                Icon(Icons.Rounded.Layers, "Semua sesi")
+            if (sessions.size > 1) {
+                Spacer(Modifier.width(6.dp))
+                Badge(containerColor = Palette.Accent, contentColor = Palette.Bg) { Text("${sessions.size}") }
             }
+            Icon(Icons.Rounded.ExpandMore, "Semua sesi", tint = Palette.TextDim)
         }
-        IconButton(onClick = onSnippets) { Icon(Icons.Rounded.Bolt, "Snippet", tint = Palette.Warn) }
+        IconButton(onClick = onNewSession) { Icon(Icons.Rounded.Add, "Sesi baru", tint = Palette.Accent) }
+        IconButton(onClick = onCloseSession) { Icon(Icons.Rounded.Close, "Tutup sesi ini") }
         Box {
             IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

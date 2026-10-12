@@ -88,6 +88,8 @@ class SshConnection(
                     KeyManager.privateKeyText(key), null, StaticPasswordFinder(KeyManager.passphrase(key)),
                 )
                 c.authPublickey(host.username, provider)
+                // Login dengan kunci berhasil: kunci ini jelas terpasang di server ini.
+                vault.markKeyInstalled(key.id, host.id)
             }
             AuthType.PASSWORD -> {
                 var password = SecretBox.decryptOrNull(host.passwordEnc)

@@ -3,6 +3,20 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.5.0] - 2026-10-12
+
+### Diubah
+- Tab **Sesi** (ala Termius) hanya menampilkan sesi yang sedang tersambung, masing-masing dengan **pratinjau layar
+  terminal** yang diperbarui tiap detik. Ketuk untuk masuk, ✕ untuk menutup.
+- Bar atas terminal: tombol **+** untuk membuka sesi baru ke host mana pun tanpa keluar dari terminal, dan tombol
+  **✕** untuk menutup sesi yang sedang dibuka (keluar terminal otomatis bila tidak ada sesi tersisa). Tombol snippet
+  dipindah ke bar tombol bawah dan menu.
+
+### Ditambahkan
+- **Keychain**: setiap kunci menampilkan server tempat kunci terpasang (tercatat saat dipasang lewat tombol
+  **Pasang**, saat dicek, atau saat login dengan kunci itu berhasil), host yang memakainya untuk login, serta tombol
+  **Cek** (periksa authorized_keys di server) dan **Lepas** (hapus dari server).
+
 ## [0.4.1] - 2026-10-12
 
 ### Keamanan

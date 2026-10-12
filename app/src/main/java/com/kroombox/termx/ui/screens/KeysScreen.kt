@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.ui.components.timeAgo
+import com.kroombox.termx.ui.components.HostAvatar
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -112,6 +114,15 @@ fun KeysScreen(modifier: Modifier = Modifier) {
                             Text(k.name, style = MaterialTheme.typography.titleMedium)
                             Text(k.type, style = MaterialTheme.typography.labelMedium, color = Palette.Blue)
                             Text(k.fingerprint, style = MonoSmall, maxLines = 1)
+                            val names = k.installedOn.mapNotNull { i -> data.hosts.firstOrNull { it.id == i.hostId }?.label }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                if (names.isEmpty()) "Belum tercatat terpasang di server mana pun"
+                                else "Terpasang di ${names.size} server: " + names.take(3).joinToString(", ") + if (names.size > 3) ", …" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (names.isEmpty()) Palette.TextDim else Palette.Accent,
+                                maxLines = 2,
+                            )
                         }
                     }
                 }
@@ -138,7 +149,7 @@ fun KeysScreen(modifier: Modifier = Modifier) {
     if (importing) ImportKeyDialog(onDismiss = { importing = false })
     detail?.let { k ->
         ModalBottomSheet(onDismissRequest = { detail = null }, containerColor = Palette.Surface) {
-            KeyDetail(k, hosts = data.hosts, onDeleted = { detail = null })
+            KeyDetail(data.keys.firstOrNull { it.id == k.id } ?: k, hosts = data.hosts, onDeleted = { detail = null })
         }
     }
 }
@@ -311,6 +322,9 @@ private fun KeyDetail(k: SshKey, hosts: List<Host>, onDeleted: () -> Unit) {
                                 val script = "umask 077; mkdir -p \"\$HOME/.ssh\"; touch \"\$HOME/.ssh/authorized_keys\"; " +
                                     "grep -qxF '$line' \"\$HOME/.ssh/authorized_keys\" && echo EXISTS || { echo '$line' >> \"\$HOME/.ssh/authorized_keys\" && echo ADDED; }"
                                 val r = conn.exec("sh -s", stdin = script)
+                                if (r.stdout.contains("ADDED") || r.stdout.contains("EXISTS")) {
+                                    TermXApp.container.vault.markKeyInstalled(k.id, h.id)
+                                }
                                 when {
                                     r.stdout.contains("ADDED") -> "Berhasil dipasang di ${h.label}. Sekarang host bisa diubah ke autentikasi kunci."
                                     r.stdout.contains("EXISTS") -> "Kunci sudah ada di ${h.label}."
@@ -335,6 +349,8 @@ private fun KeyDetail(k: SshKey, hosts: List<Host>, onDeleted: () -> Unit) {
         }
         installMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("Gagal")) Palette.Danger else Palette.Accent) }
 
+        InstalledOnSection(k, hosts)
+
         TextButton(onClick = { confirmDelete = true }) {
             Icon(Icons.Rounded.Delete, null, tint = Palette.Danger); Spacer(Modifier.width(6.dp)); Text("Hapus kunci", color = Palette.Danger)
         }
@@ -346,6 +362,100 @@ private fun KeyDetail(k: SshKey, hosts: List<Host>, onDeleted: () -> Unit) {
             confirmText = "Hapus", danger = true,
             onConfirm = { TermXApp.container.vault.deleteKey(k.id); onDeleted() },
             onDismiss = { confirmDelete = false },
+        )
+    }
+}
+
+/** Daftar server tempat kunci ini terpasang, dengan cek ulang dan lepas dari server. */
+@Composable
+private fun InstalledOnSection(k: SshKey, hosts: List<Host>) {
+    val scope = rememberCoroutineScope()
+    val vault = TermXApp.container.vault
+    var busy by remember { mutableStateOf<String?>(null) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var removing by remember { mutableStateOf<Host?>(null) }
+    // Dicocokkan dari tipe + blob kunci (tanpa komentar), jadi kunci yang dipasang manual pun dikenali.
+    val line = k.publicKey.replace("'", "").trim().split(Regex("\\s+")).take(2).joinToString(" ")
+    val usedBy = hosts.filter { it.authType == com.kroombox.termx.data.AuthType.KEY && it.keyId == k.id }
+    val installed = k.installedOn.mapNotNull { i -> hosts.firstOrNull { it.id == i.hostId }?.let { it to i } }
+        .sortedByDescending { it.second.at }
+
+    suspend fun run(h: Host, script: String): String = withContext(Dispatchers.IO) {
+        val mgr = TermXApp.container.sessions
+        val conn = mgr.connectionFor(h.id)
+        mgr.acquire(h.id, "key-check")
+        try { conn.exec("sh -s", stdin = script).stdout } finally { mgr.release(h.id, "key-check") }
+    }
+
+    fun check(h: Host) {
+        busy = h.id
+        scope.launch {
+            msg = try {
+                val out = run(h, "grep -qF '$line' \"\$HOME/.ssh/authorized_keys\" 2>/dev/null && echo YES || echo NO")
+                if (out.contains("YES")) { vault.markKeyInstalled(k.id, h.id); "Masih terpasang di ${h.label}." }
+                else { vault.unmarkKeyInstalled(k.id, h.id); "Tidak ditemukan lagi di ${h.label}; dihapus dari daftar." }
+            } catch (e: Exception) { "Gagal cek ${h.label}: ${e.message}" }
+            busy = null
+        }
+    }
+
+    Text("Terpasang di server", style = MaterialTheme.typography.titleSmall)
+    if (installed.isEmpty()) {
+        Text(
+            "Belum tercatat. Daftar ini terisi saat kunci dipasang lewat tombol di atas, atau saat login dengan kunci ini berhasil.",
+            style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+        )
+    }
+    installed.forEach { (h, inst) ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HostAvatar(h, size = 36.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(h.label, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                Text(
+                    "${h.address} · ${timeAgo(inst.at)}" + if (h in usedBy) " · dipakai login" else "",
+                    style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 1,
+                )
+            }
+            if (busy == h.id) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                TextButton(onClick = { check(h) }) { Text("Cek") }
+                TextButton(onClick = { removing = h }) { Text("Lepas", color = Palette.Danger) }
+            }
+        }
+    }
+    val notListed = usedBy.filter { u -> installed.none { it.first.id == u.id } }
+    if (notListed.isNotEmpty()) {
+        Text(
+            "Dipakai login oleh: " + notListed.joinToString(", ") { it.label } + " (tercatat setelah login berhasil).",
+            style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+        )
+    }
+    msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("Gagal")) Palette.Danger else Palette.Accent) }
+
+    removing?.let { h ->
+        ConfirmDialog(
+            title = "Lepas kunci dari ${h.label}?",
+            message = "Public key ini dihapus dari ~/.ssh/authorized_keys di ${h.label}." +
+                (if (h in usedBy) " Host ini login memakai kunci ini — setelah dilepas, login akan gagal kecuali ada password." else ""),
+            confirmText = "Lepas", danger = true,
+            onConfirm = {
+                busy = h.id
+                scope.launch {
+                    msg = try {
+                        val out = run(
+                            h,
+                            "f=\"\$HOME/.ssh/authorized_keys\"; [ -f \"\$f\" ] || { echo REMOVED; exit 0; }; " +
+                                "grep -vF '$line' \"\$f\" > \"\$f.termx.tmp\"; cat \"\$f.termx.tmp\" > \"\$f\" && rm -f \"\$f.termx.tmp\" && echo REMOVED",
+                        )
+                        if (out.contains("REMOVED")) { vault.unmarkKeyInstalled(k.id, h.id); "Kunci dilepas dari ${h.label}." }
+                        else "Gagal melepas dari ${h.label}."
+                    } catch (e: Exception) { "Gagal: ${e.message}" }
+                    busy = null
+                }
+            },
+            onDismiss = { removing = null },
         )
     }
 }

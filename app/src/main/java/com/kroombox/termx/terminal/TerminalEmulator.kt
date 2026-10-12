@@ -812,6 +812,14 @@ class TerminalEmulator(
         }
     }
 
+    /** Baris layar yang tampil (tanpa baris kosong di bawah), maksimal [n] baris terakhir — untuk pratinjau. */
+    fun previewLines(n: Int): List<String> = synchronized(lock) {
+        var last = rows - 1
+        while (last > 0 && screen[last].text().isBlank()) last--
+        val from = (last - n + 1).coerceAtLeast(0)
+        (from..last).map { screen[it].text().trimEnd() }
+    }
+
     /** Teks [n] baris terakhir sampai baris kursor (untuk memeriksa echo perintah). */
     fun recentText(n: Int): String = synchronized(lock) {
         val from = (cursorY - n + 1).coerceAtLeast(0)

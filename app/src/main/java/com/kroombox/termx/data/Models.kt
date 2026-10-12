@@ -72,6 +72,15 @@ data class SshKey(
     val passphraseEnc: String? = null,
     val fingerprint: String,
     val createdAt: Long = System.currentTimeMillis(),
+    /** Server tempat public key ini terpasang (dari tombol Pasang, cek ulang, atau login kunci yang berhasil). */
+    val installedOn: List<KeyInstall> = emptyList(),
+)
+
+@Serializable
+data class KeyInstall(
+    val hostId: String,
+    /** Terakhir dipastikan terpasang (dipasang, dicek, atau dipakai login). */
+    val at: Long = System.currentTimeMillis(),
 )
 
 @Serializable

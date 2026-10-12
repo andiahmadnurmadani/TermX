@@ -109,6 +109,7 @@ class Vault(context: Context) {
     fun deleteHost(id: String) = update { d ->
         d.copy(
             hosts = d.hosts.filterNot { it.id == id }.map { if (it.jumpHostId == id) it.copy(jumpHostId = null) else it },
+            keys = d.keys.map { k -> k.copy(installedOn = k.installedOn.filterNot { it.hostId == id }) },
             forwards = d.forwards.filterNot { it.hostId == id },
         )
     }
@@ -136,6 +137,17 @@ class Vault(context: Context) {
     fun saveKey(k: SshKey) = update { d ->
         val exists = d.keys.any { it.id == k.id }
         d.copy(keys = if (exists) d.keys.map { if (it.id == k.id) k else it } else d.keys + k)
+    }
+
+    /** Catat bahwa kunci [keyId] terpasang di [hostId]. */
+    fun markKeyInstalled(keyId: String, hostId: String) = update { d ->
+        d.copy(keys = d.keys.map { k ->
+            if (k.id != keyId) k else k.copy(installedOn = k.installedOn.filterNot { it.hostId == hostId } + KeyInstall(hostId))
+        })
+    }
+
+    fun unmarkKeyInstalled(keyId: String, hostId: String) = update { d ->
+        d.copy(keys = d.keys.map { k -> if (k.id != keyId) k else k.copy(installedOn = k.installedOn.filterNot { it.hostId == hostId }) })
     }
 
     fun deleteKey(id: String) = update { d ->

@@ -69,9 +69,10 @@ fun SessionSwitcher(
     onClose: (TerminalSession) -> Unit,
     onNew: (hostId: String, tmux: String?) -> Unit,
     onAttachTmux: (hostId: String, name: String) -> Unit,
+    initialTab: Int = 0,
 ) {
     val data by TermXApp.container.vault.data.collectAsState()
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(initialTab) }
     var query by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
