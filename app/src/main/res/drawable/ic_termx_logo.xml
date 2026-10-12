@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Logo TermX untuk halaman Tentang. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M26,2h56a24,24 0,0 1,24 24v56a24,24 0,0 1,-24 24h-56a24,24 0,0 1,-24 -24v-56a24,24 0,0 1,24 -24z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="108" android:endY="108"><item android:offset="0" android:color="#FF1A212C" /><item android:offset="1" android:color="#FF0B0E13" /></gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M26,2h56a24,24 0,0 1,24 24v56a24,24 0,0 1,-24 24h-56a24,24 0,0 1,-24 -24v-56a24,24 0,0 1,24 -24z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="38" android:centerY="36" android:gradientRadius="60"><item android:offset="0" android:color="#333DDC97" /><item android:offset="0.6" android:color="#0D5AA9FF" /><item android:offset="1" android:color="#005AA9FF" /></gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M26,2h56a24,24 0,0 1,24 24v56a24,24 0,0 1,-24 24h-56a24,24 0,0 1,-24 -24v-56a24,24 0,0 1,24 -24z" android:fillColor="#00000000" android:strokeColor="#403DDC97" android:strokeWidth="1.5" />
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="1.45" android:scaleY="1.45">
+        <path android:pathData="M41,41 L54,54 L41,67" android:fillColor="#00000000" android:strokeColor="#383DDC97" android:strokeWidth="14" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M41,41 L54,54 L41,67" android:fillColor="#00000000" android:strokeWidth="7.5" android:strokeLineCap="round" android:strokeLineJoin="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="linear" android:startX="41" android:startY="41" android:endX="54" android:endY="67"><item android:offset="0" android:color="#FF3DDC97" /><item android:offset="1" android:color="#FF5AA9FF" /></gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M61.5,62.5h9a2.75,2.75 0,0 1,0 5.5h-9a2.75,2.75 0,0 1,0 -5.5z" android:fillColor="#FF3DDC97" />
+    </group>
+</vector>

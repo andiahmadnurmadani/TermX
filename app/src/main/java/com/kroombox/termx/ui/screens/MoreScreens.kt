@@ -131,7 +131,7 @@ fun MoreScreen(nav: Nav, modifier: Modifier = Modifier) {
         SectionHeader("Tentang")
         AppCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(painterResource(R.drawable.termx_logo), contentDescription = null, modifier = Modifier.size(52.dp))
+                Image(painterResource(R.drawable.ic_termx_logo), contentDescription = null, modifier = Modifier.size(52.dp))
                 Spacer(Modifier.width(14.dp))
                 Column {
                     Text("TermX ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
@@ -203,6 +203,21 @@ fun SettingsScreen(nav: Nav) {
 
             SectionHeader("Keyboard")
             AppCard {
+                LabeledSwitch(
+                    "Saran perintah (autocomplete)",
+                    "Saran dari riwayat perintah host, snippet, dan perintah umum muncul di atas bar tombol. Perintah yang tidak tampil di layar (mis. password) tidak disimpan.",
+                    s.autocomplete,
+                ) { v -> vault.updateSettings { it.copy(autocomplete = v) } }
+                LabeledSwitch(
+                    "Isi otomatis password sudo",
+                    "Saat muncul \"[sudo] password for <user>\", password sudo host diketik otomatis. Prompt lain hanya menampilkan tombol isi.",
+                    s.sudoAutofill,
+                ) { v -> vault.updateSettings { it.copy(sudoAutofill = v) } }
+                var cleared by remember { mutableStateOf(false) }
+                TextButton(onClick = { TermXApp.container.sessions.commandHistory.clearAll(); cleared = true }) {
+                    Text(if (cleared) "Riwayat perintah dihapus" else "Hapus riwayat perintah")
+                }
+                Spacer(Modifier.height(8.dp))
                 Text("Jenis keyboard di terminal", style = MaterialTheme.typography.bodyLarge)
                 listOf(
                     "standard" to ("Standar (disarankan)" to "Keyboard normal, setiap huruf langsung terkirim — paling cepat."),

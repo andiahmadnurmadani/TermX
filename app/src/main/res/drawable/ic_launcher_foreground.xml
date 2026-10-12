@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Logo TermX: prompt terminal "&gt;_" — chevron bergradien mint ke biru (warna tema) dan kursor mint. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M41,41 L54,54 L41,67" android:fillColor="#00000000" android:strokeColor="#383DDC97" android:strokeWidth="14" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M41,41 L54,54 L41,67" android:fillColor="#00000000" android:strokeWidth="7.5" android:strokeLineCap="round" android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient android:type="linear" android:startX="41" android:startY="41" android:endX="54" android:endY="67"><item android:offset="0" android:color="#FF3DDC97" /><item android:offset="1" android:color="#FF5AA9FF" /></gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M61.5,62.5h9a2.75,2.75 0,0 1,0 5.5h-9a2.75,2.75 0,0 1,0 -5.5z" android:fillColor="#FF3DDC97" />
+</vector>

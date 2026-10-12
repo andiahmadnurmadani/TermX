@@ -49,6 +49,16 @@ object Sudo {
         return PROMPTS.any { it.containsMatchIn(text) }
     }
 
+    /**
+     * Prompt milik sudo untuk [user] (mis. `[sudo] password for andi:` / `[sudo] kata sandi untuk andi:`).
+     * Hanya prompt jenis ini yang diisi otomatis; prompt password lain cukup ditawarkan tombolnya.
+     */
+    fun isSudoPromptFor(tail: String, user: String): Boolean {
+        val last = stripAnsi(tail).replace("\r", "").trimEnd(' ').lines().lastOrNull { it.isNotBlank() } ?: return false
+        if (!last.contains("[sudo]", ignoreCase = true)) return false
+        return user.isBlank() || Regex("\\b" + Regex.escape(user) + "\\s*:\\s*$").containsMatchIn(last)
+    }
+
     /** Hasil stderr sudo yang berarti password diperlukan (mode -n). */
     fun needsPassword(stderr: String): Boolean {
         val e = stderr.lowercase()

@@ -134,6 +134,10 @@ data class AppSettings(
     val keepAliveInBackground: Boolean = true,
     /** Dialog izin "tanpa batasan baterai" sudah pernah ditampilkan. */
     val batteryPromptShown: Boolean = false,
+    /** Saran perintah (autocomplete) di atas bar tombol terminal. */
+    val autocomplete: Boolean = true,
+    /** Isi otomatis password sudo saat prompt `[sudo] password for <user>` muncul. */
+    val sudoAutofill: Boolean = true,
     /** Keyboard terminal: "standard" (cepat, tanpa mode password), "text" (saran/autocorrect), "nosuggest" (mode lama). */
     val keyboardMode: String = "standard",
     /** Layout bar tombol tambahan, dipisah spasi. */

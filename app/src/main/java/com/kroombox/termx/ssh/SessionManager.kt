@@ -41,6 +41,11 @@ class SessionManager(private val context: Context, val vault: Vault) {
     val forwards = PortForwardManager(this)
 
     val history = SessionHistory(context)
+    val commandHistory = CommandHistory(context)
+
+    /** Saran autocomplete untuk host dan awal baris. */
+    fun suggestions(hostId: String, prefix: String): List<String> =
+        Autocomplete.suggest(prefix, commandHistory.list(hostId), vault.current.snippets.map { it.command })
 
     /** Diset dari notifikasi ("Putuskan semua…"); UI menampilkan konfirmasi. */
     val disconnectRequested = MutableStateFlow(false)

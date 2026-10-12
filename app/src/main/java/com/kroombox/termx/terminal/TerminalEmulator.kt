@@ -812,6 +812,12 @@ class TerminalEmulator(
         }
     }
 
+    /** Teks [n] baris terakhir sampai baris kursor (untuk memeriksa echo perintah). */
+    fun recentText(n: Int): String = synchronized(lock) {
+        val from = (cursorY - n + 1).coerceAtLeast(0)
+        (from..cursorY).joinToString("\n") { screen[it].text().trimEnd() }
+    }
+
     // ---------------------------------------------------------------- Rekaman riwayat
     /**
      * Rekam isi terminal sebagai teks ANSI (warna & atribut ikut), untuk disimpan ke disk dan dimuat

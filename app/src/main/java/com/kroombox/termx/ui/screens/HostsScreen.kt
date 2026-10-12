@@ -23,6 +23,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import com.kroombox.termx.data.AccentColors
+import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -144,11 +150,26 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
                     val list = grouped[gid] ?: return@forEach
                     if (groupFilter == null && data.groups.isNotEmpty()) {
                         item(key = "g-$gid") {
-                            SectionHeader(data.groups.firstOrNull { it.id == gid }?.name ?: "Tanpa grup")
+                            val g = data.groups.firstOrNull { it.id == gid }
+                            Row(Modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (g != null) {
+                                    StatusDot(accent(g.colorIndex), 10.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(
+                                    (g?.name ?: "Tanpa grup").uppercase(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = g?.let { accent(it.colorIndex) } ?: Palette.TextDim,
+                                    letterSpacing = 1.2.sp,
+                                )
+                            }
                         }
                     }
                     items(list, key = { it.id }) { host ->
-                        HostCard(host, connected = host.id in connectedHosts, nav = nav)
+                        HostCard(
+                            host, connected = host.id in connectedHosts, nav = nav,
+                            groupColor = data.groups.firstOrNull { it.id == host.groupId }?.let { accent(it.colorIndex) },
+                        )
                     }
                 }
             }
@@ -164,25 +185,65 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
     }
 
     if (newGroup) {
-        var name by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { newGroup = false },
-            title = { Text("Grup baru") },
-            text = { OutlinedTextField(name, { name = it }, label = { Text("Nama grup") }, singleLine = true) },
-            confirmButton = {
-                TextButton(enabled = name.isNotBlank(), onClick = {
-                    vault.saveGroup(HostGroup(name = name.trim(), colorIndex = data.groups.size + 1))
-                    newGroup = false
-                }) { Text("Simpan") }
-            },
-            dismissButton = { TextButton(onClick = { newGroup = false }) { Text("Batal") } },
+        GroupDialog(initial = null, suggestedColor = data.groups.size + 1, onDismiss = { newGroup = false })
+    }
+}
+
+/** Buat atau ubah grup: nama dan warna. Grup yang sudah ada juga bisa dihapus dari sini. */
+@Composable
+private fun GroupDialog(initial: HostGroup?, suggestedColor: Int, onDismiss: () -> Unit, onDeleted: () -> Unit = {}) {
+    val vault = TermXApp.container.vault
+    var name by remember { mutableStateOf(initial?.name ?: "") }
+    var color by remember { mutableIntStateOf(((initial?.colorIndex ?: suggestedColor) % AccentColors.size + AccentColors.size) % AccentColors.size) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial == null) "Grup baru" else "Edit grup") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Nama grup") }, singleLine = true)
+                Text("Warna", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    AccentColors.indices.forEach { i ->
+                        val c = accent(i)
+                        Box(
+                            Modifier.size(32.dp).clip(CircleShape).background(c)
+                                .border(3.dp, if (i == color) Color.White else Color.Transparent, CircleShape)
+                                .clickable { color = i },
+                        )
+                    }
+                }
+                if (initial != null) {
+                    TextButton(onClick = { confirmDelete = true }) {
+                        Icon(Icons.Rounded.Delete, null, tint = Palette.Danger, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Hapus grup", color = Palette.Danger)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = name.isNotBlank(), onClick = {
+                vault.saveGroup((initial ?: HostGroup(name = "")).copy(name = name.trim(), colorIndex = color))
+                onDismiss()
+            }) { Text("Simpan") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+    )
+    if (confirmDelete && initial != null) {
+        ConfirmDialog(
+            title = "Hapus grup?",
+            message = "Grup \"${initial.name}\" dihapus. Host di dalamnya tidak ikut terhapus.",
+            confirmText = "Hapus", danger = true,
+            onConfirm = { vault.deleteGroup(initial.id); onDeleted(); onDismiss() },
+            onDismiss = { confirmDelete = false },
         )
     }
 }
 
 @Composable
 private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (String?) -> Unit, onAdd: () -> Unit) {
-    var deleting by remember { mutableStateOf<HostGroup?>(null) }
+    var editing by remember { mutableStateOf<HostGroup?>(null) }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text("Semua") })
         groups.forEach { g ->
@@ -192,33 +253,30 @@ private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (St
                 label = { Text(g.name) },
                 leadingIcon = { StatusDot(accent(g.colorIndex)) },
                 trailingIcon = if (selected == g.id) {
-                    { Icon(Icons.Rounded.Delete, "Hapus grup", Modifier.size(16.dp).clip(RoundedCornerShape(8.dp)).clickable { deleting = g }) }
+                    { Icon(Icons.Rounded.Edit, "Edit grup", Modifier.size(16.dp).clip(RoundedCornerShape(8.dp)).clickable { editing = g }) }
                 } else null,
-                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primaryContainer),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = accent(g.colorIndex).copy(alpha = 0.22f),
+                    selectedLabelColor = accent(g.colorIndex),
+                ),
             )
         }
         FilterChip(selected = false, onClick = onAdd, label = { Text("Grup") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
     }
-    deleting?.let { g ->
-        ConfirmDialog(
-            title = "Hapus grup?",
-            message = "Grup \"${g.name}\" dihapus. Host di dalamnya tidak ikut terhapus.",
-            confirmText = "Hapus", danger = true,
-            onConfirm = { TermXApp.container.vault.deleteGroup(g.id); onSelect(null) },
-            onDismiss = { deleting = null },
-        )
+    editing?.let { g ->
+        GroupDialog(initial = g, suggestedColor = g.colorIndex, onDismiss = { editing = null }, onDeleted = { onSelect(null) })
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
+private fun HostCard(host: Host, connected: Boolean, nav: Nav, groupColor: Color? = null) {
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, groupColor?.copy(alpha = 0.45f) ?: MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
@@ -260,6 +318,7 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
             onConfirm = {
                 TermXApp.container.vault.deleteHost(host.id)
                 TermXApp.container.sessions.history.deleteForHost(host.id)
+                TermXApp.container.sessions.commandHistory.deleteHost(host.id)
             },
             onDismiss = { confirmDelete = false },
         )

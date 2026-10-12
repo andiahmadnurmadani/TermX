@@ -1,5 +1,9 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.ui.components.HostAvatar
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Badge
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.runtime.rememberCoroutineScope
 import com.kroombox.termx.ui.components.SpecAvatar
@@ -135,6 +139,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
     var stickyMods by remember { mutableIntStateOf(0) }
     var selecting by remember { mutableStateOf(false) }
     var showSnippets by remember { mutableStateOf(false) }
+    var showSwitcher by remember { mutableStateOf(false) }
     var confirmKill by remember { mutableStateOf<TerminalSession?>(null) }
     val viewHolder = remember { arrayOfNulls<TerminalView>(1) }
     val uiScope = rememberCoroutineScope()
@@ -156,8 +161,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             sessions = sessions,
             current = current,
             onBack = { nav.back() },
-            onSelect = { selectedId = it.id },
-            onClose = { s -> mgr.closeTerminal(s.id) },
+            onOpenSessions = { showSwitcher = true },
             onSnippets = { showSnippets = true },
             menu = { dismiss ->
                 val view = viewHolder[0]
@@ -249,7 +253,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                             stickyModsProvider = { stickyMods }
                             onStickyModsConsumed = { stickyMods = 0 }
                             client = object : TerminalClient {
-                                override fun sendBytes(bytes: ByteArray) = current.write(bytes)
+                                override fun sendBytes(bytes: ByteArray) = current.typed(bytes)
                                 override fun onTerminalResize(cols: Int, rows: Int) = current.resize(cols, rows)
                                 override fun onSelectionChanged(active: Boolean) { selecting = active }
                                 override fun onFontSizeChanged(sp: Float) { fontSize = sp }
@@ -294,6 +298,34 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             )
         }
 
+        // Isi password sudo (prompt yang tidak diisi otomatis) dan saran perintah (autocomplete).
+        val askPassword by current.passwordPrompt.collectAsState()
+        val inputLine by current.inputLine.collectAsState()
+        val suggestions = remember(inputLine, current.id, settings.autocomplete, data.snippets) {
+            val l = inputLine
+            if (settings.autocomplete && !l.isNullOrEmpty()) mgr.suggestions(current.host.id, l) else emptyList()
+        }
+        if (askPassword || suggestions.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().background(Palette.Bg).horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (askPassword) {
+                    SuggestionPill("Isi password sudo", icon = Icons.Rounded.Key, color = Palette.Warn) {
+                        uiScope.launch { current.typeSudoPassword() }
+                    }
+                }
+                val l = inputLine ?: ""
+                suggestions.forEach { sug ->
+                    SuggestionPill(sug, highlight = l.length) {
+                        current.typed(sug.substring(l.length).toByteArray())
+                    }
+                }
+            }
+        }
+
         ExtraKeysBar(
             layout = settings.extraKeys,
             stickyMods = stickyMods,
@@ -307,6 +339,25 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             onPaste = { clipboardText(context)?.let { viewHolder[0]?.paste(it) } },
             onSnippets = { showSnippets = true },
         )
+    }
+
+    if (showSwitcher) {
+        ModalBottomSheet(onDismissRequest = { showSwitcher = false }, containerColor = Palette.Surface) {
+            SessionSwitcher(
+                sessions = sessions,
+                current = current,
+                onSelect = { s -> selectedId = s.id; showSwitcher = false },
+                onClose = { s -> mgr.closeTerminal(s.id) },
+                onNew = { hostId, tmux ->
+                    showSwitcher = false
+                    mgr.openTerminal(hostId, tmuxOverride = tmux, forcePlain = tmux == null)?.let { selectedId = it.id }
+                },
+                onAttachTmux = { hostId, name ->
+                    showSwitcher = false
+                    mgr.openTerminal(hostId, tmuxOverride = name, loadHistory = true)?.let { selectedId = it.id }
+                },
+            )
+        }
     }
 
     if (showSnippets) {
@@ -330,28 +381,51 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
     }
 }
 
+/**
+ * Bar atas ala Termius: sesi yang sedang dibuka (ikon host, nama, mode, status) — ketuk untuk membuka
+ * panel Sesi (pindah sesi, sesi baru, tmux di server) — plus jumlah sesi aktif, snippet, dan menu.
+ */
 @Composable
 private fun TerminalTopBar(
     sessions: List<TerminalSession>,
     current: TerminalSession,
     onBack: () -> Unit,
-    onSelect: (TerminalSession) -> Unit,
-    onClose: (TerminalSession) -> Unit,
+    onOpenSessions: () -> Unit,
     onSnippets: () -> Unit,
     menu: @Composable (dismiss: () -> Unit) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val state by current.state.collectAsState()
+    val title by current.title.collectAsState()
+    val host = TermXApp.container.vault.host(current.host.id) ?: current.host
     Row(
         Modifier.fillMaxWidth().background(Palette.Surface).padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") }
         Row(
-            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpenSessions)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            sessions.forEach { s ->
-                SessionTab(s, selected = s.id == current.id, onClick = { onSelect(s) }, onClose = { onClose(s) })
+            Box {
+                HostAvatar(host, size = 32.dp)
+                Box(Modifier.align(Alignment.BottomEnd)) { StatusDot(stateColor(state), 9.dp) }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(host.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    (current.tmuxName?.let { "tmux: $it" } ?: "Terminal") + " · " +
+                        (if (state == SessionState.CONNECTED && title.isNotBlank() && title != host.label) title else stateLabel(state)),
+                    style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(Icons.Rounded.ExpandMore, "Sesi", tint = Palette.TextDim)
+        }
+        IconButton(onClick = onOpenSessions) {
+            BadgedBox(badge = { Badge(containerColor = Palette.Accent, contentColor = Palette.Bg) { Text("${sessions.size}") } }) {
+                Icon(Icons.Rounded.Layers, "Semua sesi")
             }
         }
         IconButton(onClick = onSnippets) { Icon(Icons.Rounded.Bolt, "Snippet", tint = Palette.Warn) }
@@ -364,29 +438,30 @@ private fun TerminalTopBar(
     }
 }
 
+/** Satu saran: bagian yang sudah diketik redup, sisanya terang. */
 @Composable
-private fun SessionTab(s: TerminalSession, selected: Boolean, onClick: () -> Unit, onClose: () -> Unit) {
-    val state by s.state.collectAsState()
-    val title by s.title.collectAsState()
+private fun SuggestionPill(
+    text: String,
+    highlight: Int = 0,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    color: Color = Palette.Accent,
+    onClick: () -> Unit,
+) {
     Surface(
-        color = if (selected) Palette.SurfaceHighest else Color.Transparent,
+        color = Palette.SurfaceHigh,
         shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.35f)),
         modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick),
     ) {
-        Row(Modifier.padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(stateColor(state))
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.widthIn(max = 160.dp)) {
-                Text(s.host.label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val sub = s.tmuxName?.let { "tmux:$it" } ?: title
-                Text(sub, style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (selected) {
-                IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Rounded.Close, "Tutup", Modifier.size(16.dp), tint = Palette.TextDim)
-                }
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(icon, null, tint = color, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(text, color = color, style = MaterialTheme.typography.labelLarge)
             } else {
-                Spacer(Modifier.width(8.dp))
+                val h = highlight.coerceIn(0, text.length)
+                Text(text.substring(0, h), color = Palette.TextDim, fontFamily = Mono, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                Text(text.substring(h), color = Palette.Text, fontFamily = Mono, style = MaterialTheme.typography.labelLarge, maxLines = 1)
             }
         }
     }

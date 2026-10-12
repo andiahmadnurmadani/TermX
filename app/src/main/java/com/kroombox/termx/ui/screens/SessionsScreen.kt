@@ -100,6 +100,34 @@ fun SessionsScreen(nav: Nav, modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(bottom = 6.dp),
             )
         }
+        // Ala Termius: koneksi yang sedang berjalan selalu di paling atas.
+        if (sessions.isNotEmpty()) {
+            item { SubHeader("Aktif (${sessions.size})") }
+            items(sessions, key = { "a-" + it.id }) { s ->
+                val h = data.hosts.firstOrNull { it.id == s.host.id } ?: s.host
+                val st by s.state.collectAsState()
+                AppCard(onClick = { nav.terminal(s.id) }, contentPadding = PaddingValues(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.foundation.layout.Box {
+                            HostAvatar(h, size = 40.dp)
+                            androidx.compose.foundation.layout.Box(Modifier.align(Alignment.BottomEnd)) { StatusDot(stateColor(st), 10.dp) }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(h.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                (s.tmuxName?.let { "tmux: $it" } ?: "Terminal") + " · " + stateLabel(st),
+                                style = MaterialTheme.typography.bodySmall, color = stateColor(st),
+                            )
+                        }
+                        IconButton(onClick = { TermXApp.container.sessions.closeTerminal(s.id) }) {
+                            Icon(Icons.Rounded.Close, "Tutup sesi", tint = Palette.TextDim)
+                        }
+                    }
+                }
+            }
+            item { SubHeader("Host") }
+        }
         if (hosts.isEmpty()) {
             item {
                 Column(Modifier.height(360.dp)) {

@@ -3,6 +3,24 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.4.0] - 2026-10-12
+
+### Ditambahkan
+- **Pengelolaan sesi ala Termius**: bar atas terminal menampilkan sesi yang sedang dibuka (ikon host, mode, status) dan
+  jumlah sesi aktif. Ketuk untuk membuka panel **Sesi**: pindah sesi, tutup sesi, buka sesi baru ke host mana pun
+  (terminal atau tmux), dan masuk ke sesi tmux yang hidup di server.
+- Tab Sesi: bagian **Aktif** di paling atas berisi semua koneksi yang sedang berjalan.
+- **Autocomplete perintah**: saran di atas bar tombol dari riwayat perintah host, snippet, dan perintah umum.
+  Perintah yang tidak tampil di layar saat diketik (mis. password) tidak pernah disimpan. Bisa dimatikan dan
+  riwayatnya dihapus di Pengaturan.
+- **Isi otomatis password sudo** (seperti Termius): prompt `[sudo] password for <user>` diisi otomatis dengan password
+  sudo tersimpan; prompt password lain menampilkan tombol **Isi password sudo**. Berhenti otomatis bila password ditolak.
+- **Warna grup** bisa diubah (dan grup bisa diganti nama/dihapus) lewat ikon edit di chip grup; warna tampil di chip,
+  judul grup, dan tepi kartu host.
+
+### Diubah
+- Logo kembali ke prompt `>_`, kini dengan warna tema aplikasi (latar gelap, mint ke biru).
+
 ## [0.3.3] - 2026-10-12
 
 ### Diubah

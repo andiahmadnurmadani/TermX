@@ -59,6 +59,36 @@ class TerminalSession(
 
     val isPersistent: Boolean get() = tmuxName != null
 
+    // ------------------------------------------------------------------ Autocomplete
+    private val tracker = InputTracker()
+    private val _inputLine = MutableStateFlow<String?>("")
+    /** Baris yang sedang diketik (perkiraan); null = tidak diketahui. */
+    val inputLine: StateFlow<String?> = _inputLine.asStateFlow()
+
+    /**
+     * Input dari pengguna (keyboard, tombol tambahan, tempel, snippet). Dilacak untuk autocomplete,
+     * lalu dikirim ke server. Balasan otomatis terminal tetap lewat [write] langsung.
+     */
+    fun typed(bytes: ByteArray) {
+        val done = synchronized(tracker) {
+            val d = tracker.feed(String(bytes, Charsets.UTF_8))
+            _inputLine.value = tracker.line
+            d
+        }
+        if (done.isNotEmpty()) {
+            // Simpan ke riwayat hanya bila perintahnya terlihat di layar (ter-echo). Yang tidak tampil
+            // (password, input rahasia) tidak pernah disimpan.
+            val screen = emulator.recentText(3)
+            val prompt = Sudo.isPasswordPrompt(screen)
+            done.forEach { cmd ->
+                val probe = cmd.trim().takeLast(24)
+                val echoed = screen.contains(probe) || screen.replace("\n", "").contains(probe)
+                if (!prompt && probe.isNotEmpty() && echoed) manager.commandHistory.add(host.id, cmd)
+            }
+        }
+        write(bytes)
+    }
+
     /** Kunci file riwayat (lihat [SessionHistory]). */
     var historyKey: String = ""
 
@@ -224,25 +254,57 @@ class TerminalSession(
             synchronized(recent) { recent.setLength(0) }
             sudoArmedUntil = System.currentTimeMillis() + 20_000
         }
-        write((cmd + if (autoRun) "\r" else "").toByteArray())
+        typed((cmd + if (autoRun) "\r" else "").toByteArray())
     }
 
+    /** Prompt password sedang tampil di layar (UI menampilkan tombol "Isi password sudo"). */
+    private val _passwordPrompt = MutableStateFlow(false)
+    val passwordPrompt: StateFlow<Boolean> = _passwordPrompt.asStateFlow()
+
+    /** Prompt yang sedang tampil sudah ditangani (diisi otomatis / tombolnya ditampilkan). */
+    @Volatile private var promptHandled = false
+    /** Setelah password ditolak, pengisian otomatis berhenti sementara agar akun tidak terkunci. */
+    @Volatile private var autofillPausedUntil = 0L
+
+    /**
+     * Isi otomatis password sudo, seperti Termius. Setiap output diperiksa: bila baris terakhir adalah
+     * prompt `[sudo] password for <user host>`, password sudo yang tersimpan diketik otomatis (sekali
+     * per prompt). Prompt password lain (mis. `Password:` program lain), password yang belum tersimpan,
+     * atau setelah password ditolak: hanya tombol "Isi password sudo" yang ditampilkan.
+     */
+    @Suppress("UNUSED_PARAMETER")
     private fun watchSudoPrompt(buf: ByteArray, n: Int) {
-        if (sudoArmedUntil == 0L) return
-        if (System.currentTimeMillis() > sudoArmedUntil) { sudoArmedUntil = 0L; return }
-        val tail = synchronized(recent) {
-            recent.append(String(buf, 0, n, Charsets.UTF_8))
-            if (recent.length > 512) recent.delete(0, recent.length - 512)
-            recent.toString()
+        // Dilihat dari layar (baris kursor), bukan aliran mentah: di dalam tmux, redraw status bar bisa
+        // menyela output, tetapi kursor tetap kembali ke baris prompt.
+        val tail = emulator.recentText(3)
+        if (!Sudo.isPasswordPrompt(tail)) {
+            promptHandled = false
+            if (_passwordPrompt.value) _passwordPrompt.value = false
+            return
         }
-        if (!Sudo.isPasswordPrompt(tail)) return
+        if (promptHandled) return
+        promptHandled = true
+        val now = System.currentTimeMillis()
+        if (Sudo.wrongPassword(tail)) autofillPausedUntil = now + 60_000
+        val armed = sudoArmedUntil != 0L && now <= sudoArmedUntil
         sudoArmedUntil = 0L
-        scope.launch(Dispatchers.IO) { typeSudoPassword() }
+        val sudoPromptForUser = Sudo.isSudoPromptFor(tail, host.username)
+        val auto = (armed || (sudoPromptForUser && manager.vault.current.settings.sudoAutofill)) && now > autofillPausedUntil
+        if (auto) {
+            scope.launch(Dispatchers.IO) {
+                // Snippet sudo boleh menanyakan password; pengisian otomatis biasa hanya memakai yang tersimpan.
+                val pw = if (armed) manager.sudoPassword(host.id, ask = true) else manager.storedSudoPassword(host.id)
+                if (pw != null) write((pw + "\r").toByteArray()) else _passwordPrompt.value = true
+            }
+        } else {
+            _passwordPrompt.value = true
+        }
     }
 
     /** Ketik password sudo host ke terminal (ditanyakan dulu bila belum tersimpan). */
     suspend fun typeSudoPassword(): Boolean {
         val pw = manager.sudoPassword(host.id, ask = true) ?: return false
+        _passwordPrompt.value = false
         write((pw + "\r").toByteArray())
         return true
     }
