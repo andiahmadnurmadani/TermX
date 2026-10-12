@@ -1,18 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ikon status bar TermX: prompt ">_" (siluet putih). -->
+<!-- Ikon status bar TermX: jendela terminal ">_" dengan rak server di belakangnya (siluet putih). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- rak server -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M15,5.5h5a2,2 0,0 1,2 2v1a2,2 0,0 1,-2 2h-5zM15,11h5a2,2 0,0 1,2 2v0.5a2,2 0,0 1,-2 2h-5zM15,16h5a2,2 0,0 1,2 2v0.5a2,2 0,0 1,-2 2h-5z" />
+    <!-- jendela terminal -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.8"
+        android:strokeWidth="1.8"
+        android:pathData="M4.5,3.5h8.5a2.5,2.5 0,0 1,2.5 2.5v12a2.5,2.5 0,0 1,-2.5 2.5h-8.5a2.5,2.5 0,0 1,-2.5 -2.5v-12a2.5,2.5 0,0 1,2.5 -2.5z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M4.5,5 L11,12 L4.5,19" />
+        android:pathData="M5.5,9 L8,11.5 L5.5,14" />
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M14,17.5h5.5a1.4,1.4 0,0 1,0 2.8h-5.5a1.4,1.4 0,0 1,0 -2.8z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M9.5,15.5h3" />
 </vector>

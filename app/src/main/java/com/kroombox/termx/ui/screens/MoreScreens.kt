@@ -130,7 +130,7 @@ fun MoreScreen(nav: Nav, modifier: Modifier = Modifier) {
         SectionHeader("Tentang")
         AppCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(painterResource(R.drawable.ic_termx_logo), contentDescription = null, modifier = Modifier.size(52.dp))
+                Image(painterResource(R.drawable.termx_logo), contentDescription = null, modifier = Modifier.size(52.dp))
                 Spacer(Modifier.width(14.dp))
                 Column {
                     Text("TermX ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)

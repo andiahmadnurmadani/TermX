@@ -17,8 +17,22 @@ class SessionHistory(context: Context) {
 
     data class Saved(val cols: Int, val rows: Int, val text: String)
 
+    /** Kunci sesi tmux: satu per sesi tmux di server (riwayatnya memang milik sesi itu). */
     fun key(hostId: String, tmuxName: String?): String =
         (hostId + "_" + (tmuxName ?: "~plain")).replace(Regex("[^A-Za-z0-9_.~-]"), "_")
+
+    /** Kunci terminal biasa: satu per tab, agar membuka terminal baru tidak menimpa riwayat tab lama. */
+    fun plainKey(hostId: String, sessionId: String): String = key(hostId, "~plain-" + sessionId.take(12))
+
+    /** Hapus riwayat terminal biasa yang tidak lagi dirujuk (tab terbuka / baru ditutup). */
+    fun prune(keep: Set<String>) {
+        dir.listFiles()?.forEach { f ->
+            val k = f.name.removeSuffix(".ans")
+            if ("~plain-" in k && k !in keep) f.delete()
+        }
+    }
+
+    fun isPlain(key: String?) = key != null && "~plain-" in key
 
     private fun file(key: String) = AtomicFile(File(dir, "$key.ans"))
 

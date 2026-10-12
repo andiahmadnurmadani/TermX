@@ -96,8 +96,14 @@ class Nav(private val nav: NavHostController) {
     fun settings() = nav.navigate(Routes.SETTINGS)
 
     /** Buka sesi terminal baru ke host lalu pindah ke layar terminal. */
-    fun connect(hostId: String, tmux: String? = null, plain: Boolean = false) {
-        val s = TermXApp.container.sessions.openTerminal(hostId, tmux, plain) ?: return
+    fun connect(
+        hostId: String,
+        tmux: String? = null,
+        plain: Boolean = false,
+        historyKey: String? = null,
+        loadHistory: Boolean = false,
+    ) {
+        val s = TermXApp.container.sessions.openTerminal(hostId, tmux, plain, historyKey, loadHistory) ?: return
         terminal(s.id)
     }
 }

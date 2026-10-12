@@ -113,7 +113,17 @@ class SessionManager(private val context: Context, val vault: Vault) {
     }
 
     // ------------------------------------------------------------------ Terminal
-    fun openTerminal(hostId: String, tmuxOverride: String? = null, forcePlain: Boolean = false): TerminalSession? {
+    /**
+     * Buka tab terminal. Terminal baru (dari tab Host) selalu kosong; riwayat hanya dimuat bila
+     * [loadHistory] — membuka lagi sesi dari tab Sesi atau memulihkan tab setelah proses dimatikan.
+     */
+    fun openTerminal(
+        hostId: String,
+        tmuxOverride: String? = null,
+        forcePlain: Boolean = false,
+        historyKey: String? = null,
+        loadHistory: Boolean = false,
+    ): TerminalSession? {
         val host = vault.host(hostId) ?: return null
         val tmux = when {
             forcePlain -> null
@@ -121,10 +131,11 @@ class SessionManager(private val context: Context, val vault: Vault) {
             host.persistentSession -> Tmux.sanitize(host.tmuxSessionName)
             else -> null
         }
-        val s = TerminalSession(newId(), host, tmux, this, vault.current.settings.scrollbackLines, scope)
-        s.historyKey = history.key(host.id, tmux)
-        // Tampilkan riwayat sebelumnya (dari tab yang dulu ditutup / proses yang dimatikan Android).
-        history.load(s.historyKey)?.let { saved ->
+        val sid = newId()
+        val s = TerminalSession(sid, host, tmux, this, vault.current.settings.scrollbackLines, scope)
+        s.historyKey = historyKey ?: if (tmux != null) history.key(host.id, tmux) else history.plainKey(host.id, sid)
+        // Riwayat sebelumnya hanya untuk sesi yang dibuka lagi (bukan terminal baru dari host).
+        if (loadHistory) history.load(s.historyKey)?.let { saved ->
             s.emulator.resize(saved.cols, saved.rows)
             s.emulator.append(saved.text)
             s.emulator.append("\r\n\u001b[2m── riwayat sebelumnya ──\u001b[0m\r\n")
@@ -142,11 +153,16 @@ class SessionManager(private val context: Context, val vault: Vault) {
      * di server tidak pernah berhenti, jadi tab langsung attach ke sesi yang sama.
      */
     fun restoreSessions() {
-        val saved = vault.current.openSessions
+        val d0 = vault.current
+        history.prune((d0.openSessions + d0.recentSessions).mapNotNull { it.historyKey }.toSet())
+        val saved = d0.openSessions
         if (saved.isEmpty() || _sessions.value.isNotEmpty()) return
         saved.forEach { ss ->
             if (vault.host(ss.hostId) == null) return@forEach
-            openTerminal(ss.hostId, tmuxOverride = ss.tmuxName, forcePlain = ss.tmuxName == null)
+            openTerminal(
+                ss.hostId, tmuxOverride = ss.tmuxName, forcePlain = ss.tmuxName == null,
+                historyKey = ss.historyKey, loadHistory = true,
+            )
         }
     }
 
@@ -154,7 +170,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
     private fun persistOpenSessions() {
         val list = _sessions.value
             .filter { it.state.value == SessionState.CONNECTING || it.state.value == SessionState.CONNECTED || it.state.value == SessionState.RECONNECTING }
-            .map { SavedSession(it.host.id, it.tmuxName) }
+            .map { SavedSession(it.host.id, it.tmuxName, historyKey = it.historyKey) }
         if (list != vault.current.openSessions) vault.update { it.copy(openSessions = list) }
     }
 
@@ -184,7 +200,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
     }
 
     fun closeAll() {
-        _sessions.value.forEach { saveHistory(it, force = true); it.close() }
+        _sessions.value.forEach { saveHistory(it, force = true); rememberRecent(it, ended = false); it.close() }
         _sessions.value = emptyList()
         vault.update { it.copy(openSessions = emptyList()) }
         scope.launch(Dispatchers.IO) { forwards.stopAll() }
@@ -219,16 +235,25 @@ class SessionManager(private val context: Context, val vault: Vault) {
     }
 
     // ------------------------------------------------------------------ Baru ditutup
+    private fun sameSession(a: SavedSession, key: String?, hostId: String, tmux: String?): Boolean =
+        if (a.historyKey != null && key != null) a.historyKey == key else a.hostId == hostId && a.tmuxName == tmux
+
     private fun rememberRecent(s: TerminalSession, ended: Boolean) {
+        var dropped: List<SavedSession> = emptyList()
         vault.update { d ->
-            val rest = d.recentSessions.filterNot { it.hostId == s.host.id && it.tmuxName == s.tmuxName }
-            val list = if (ended) rest else listOf(SavedSession(s.host.id, s.tmuxName, System.currentTimeMillis())) + rest
-            d.copy(recentSessions = list.filter { r -> d.hosts.any { it.id == r.hostId } }.take(8))
+            val rest = d.recentSessions.filterNot { sameSession(it, s.historyKey, s.host.id, s.tmuxName) }
+            val entry = SavedSession(s.host.id, s.tmuxName, System.currentTimeMillis(), historyKey = s.historyKey)
+            val all = (if (ended) rest else listOf(entry) + rest).filter { r -> d.hosts.any { it.id == r.hostId } }
+            dropped = all.drop(8)
+            d.copy(recentSessions = all.take(8))
         }
+        // Riwayat terminal biasa yang keluar dari daftar tidak bisa dibuka lagi; hapus filenya.
+        dropped.mapNotNull { it.historyKey }.filter { history.isPlain(it) }.forEach { history.delete(it) }
     }
 
     fun forgetRecent(r: SavedSession) {
-        vault.update { d -> d.copy(recentSessions = d.recentSessions.filterNot { it.hostId == r.hostId && it.tmuxName == r.tmuxName }) }
+        vault.update { d -> d.copy(recentSessions = d.recentSessions.filterNot { sameSession(it, r.historyKey, r.hostId, r.tmuxName) }) }
+        r.historyKey?.takeIf { history.isPlain(it) }?.let { history.delete(it) }
     }
 
     // ------------------------------------------------------------------ Riwayat layar

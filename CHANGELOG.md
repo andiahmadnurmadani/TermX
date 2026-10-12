@@ -3,6 +3,15 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.3.2] - 2026-10-12
+
+### Diubah
+- Logo baru: jendela terminal `>_` dengan rak server, bergradien sian-biru (ikon launcher, ikon bertema, notifikasi, halaman Tentang).
+- Terminal yang dibuka baru dari host selalu kosong. Riwayat layar hanya ditampilkan saat membuka lagi sesi dari tab
+  **Sesi** (Baru ditutup / sesi tmux) atau saat tab dipulihkan otomatis.
+- Setiap tab terminal biasa punya riwayat sendiri, sehingga membuka terminal baru tidak menimpa riwayat sesi lama.
+- "Putuskan semua" memasukkan tab ke daftar Baru ditutup agar riwayatnya tetap bisa dibuka.
+
 ## [0.3.1] - 2026-10-12
 
 ### Diubah

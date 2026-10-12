@@ -112,7 +112,9 @@ fun SessionsScreen(nav: Nav, modifier: Modifier = Modifier) {
                 host = h,
                 open = sessions.filter { it.host.id == h.id },
                 recent = data.recentSessions.filter { r ->
-                    r.hostId == h.id && sessions.none { it.host.id == r.hostId && it.tmuxName == r.tmuxName }
+                    r.hostId == h.id && sessions.none { s ->
+                        if (r.historyKey != null) s.historyKey == r.historyKey else s.host.id == r.hostId && s.tmuxName == r.tmuxName
+                    }
                 },
                 nav = nav,
             )
@@ -201,11 +203,15 @@ private fun OpenTabRow(s: TerminalSession, nav: Nav) {
     }
 }
 
+/** Buka lagi sesi yang baru ditutup, beserta riwayat layarnya. */
+private fun reopen(nav: Nav, host: Host, r: SavedSession) =
+    nav.connect(host.id, tmux = r.tmuxName, plain = r.tmuxName == null, historyKey = r.historyKey, loadHistory = true)
+
 @Composable
 private fun RecentRow(host: Host, r: SavedSession, nav: Nav) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .clickable { nav.connect(host.id, tmux = r.tmuxName, plain = r.tmuxName == null) }
+            .clickable { reopen(nav, host, r) }
             .padding(vertical = 6.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -274,7 +280,7 @@ private fun RemoteTmuxPanel(host: Host, nav: Nav) {
         list?.forEach { rs ->
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                    .clickable { nav.connect(host.id, tmux = rs.name) }
+                    .clickable { nav.connect(host.id, tmux = rs.name, loadHistory = true) }
                     .padding(vertical = 6.dp, horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

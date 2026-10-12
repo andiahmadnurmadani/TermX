@@ -177,6 +177,8 @@ data class SavedSession(
     /** Nama sesi tmux; null = shell biasa. */
     val tmuxName: String? = null,
     val closedAt: Long = 0,
+    /** File riwayat layar sesi ini (lihat SessionHistory). */
+    val historyKey: String? = null,
 )
 
 fun defaultSnippets(): List<Snippet> = listOf(

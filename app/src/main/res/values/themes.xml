@@ -6,6 +6,6 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
     <color name="bg">#FF0E1116</color>
-    <color name="launcher_bg">#FF0E1116</color>
+    <color name="launcher_bg">#FF03060F</color>
     <color name="launcher_fg">#FF3DDC97</color>
 </resources>
