@@ -2,6 +2,9 @@
 
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -175,25 +178,25 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                 DropdownMenuItem(text = { Text("Snippet") }, leadingIcon = { Icon(Icons.Rounded.Bolt, null, tint = Palette.Warn) }, onClick = {
                     dismiss(); showSnippets = true
                 })
-                DropdownMenuItem(text = { Text("Tempel") }, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_paste)) }, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) }, onClick = {
                     dismiss(); clipboardText(context)?.let { view?.paste(it) }
                 })
-                DropdownMenuItem(text = { Text("Salin layar") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_copy_screen)) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = {
                     dismiss(); copy(context, current.emulator.screenText())
                 })
-                DropdownMenuItem(text = { Text("Perbesar huruf") }, leadingIcon = { Icon(Icons.Rounded.ZoomIn, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_font_bigger)) }, leadingIcon = { Icon(Icons.Rounded.ZoomIn, null) }, onClick = {
                     fontSize = (fontSize + 1f).coerceAtMost(32f)
                 })
-                DropdownMenuItem(text = { Text("Perkecil huruf") }, leadingIcon = { Icon(Icons.Rounded.ZoomOut, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_font_smaller)) }, leadingIcon = { Icon(Icons.Rounded.ZoomOut, null) }, onClick = {
                     fontSize = (fontSize - 1f).coerceAtLeast(6f)
                 })
-                DropdownMenuItem(text = { Text("Tema: ${theme.name}") }, leadingIcon = { Icon(Icons.Rounded.Palette, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_theme, theme.name)) }, leadingIcon = { Icon(Icons.Rounded.Palette, null) }, onClick = {
                     val all = TerminalTheme.all
                     val next = all[(all.indexOf(theme) + 1) % all.size]
                     vault.updateSettings { it.copy(themeId = next.id) }
                 })
                 DropdownMenuItem(
-                    text = { Text("Font: ${TerminalFonts.option(settings).name}") },
+                    text = { Text(stringResource(R.string.term_font, TerminalFonts.option(settings).name)) },
                     leadingIcon = { Icon(Icons.Rounded.FontDownload, null) },
                     onClick = {
                         val all = TerminalFonts.options(settings)
@@ -203,20 +206,20 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     },
                 )
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text("Edit file…") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_edit_file)) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = {
                     dismiss(); editPath = "~/"
                 })
                 DropdownMenuItem(text = { Text("SFTP") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = {
                     dismiss(); nav.sftp(current.host.id)
                 })
-                DropdownMenuItem(text = { Text("Monitor server") }, leadingIcon = { Icon(Icons.Rounded.Speed, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_monitor)) }, leadingIcon = { Icon(Icons.Rounded.Speed, null) }, onClick = {
                     dismiss(); nav.monitor(current.host.id)
                 })
-                DropdownMenuItem(text = { Text("Tab baru") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_new_tab)) }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = {
                     dismiss()
                     mgr.openTerminal(current.host.id, forcePlain = true)?.let { selectedId = it.id }
                 })
-                DropdownMenuItem(text = { Text("Tab baru di tmux") }, leadingIcon = { Icon(Icons.Rounded.Layers, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_new_tab_tmux)) }, leadingIcon = { Icon(Icons.Rounded.Layers, null) }, onClick = {
                     dismiss()
                     val base = current.tmuxName ?: current.host.tmuxSessionName
                     val existing = sessions.mapNotNull { it.tmuxName }.toSet()
@@ -227,20 +230,20 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     }
                     mgr.openTerminal(current.host.id, name)?.let { selectedId = it.id }
                 })
-                DropdownMenuItem(text = { Text("Ketik password sudo") }, leadingIcon = { Icon(Icons.Rounded.Key, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_type_sudo)) }, leadingIcon = { Icon(Icons.Rounded.Key, null) }, onClick = {
                     dismiss()
-                    uiScope.launch { if (!current.typeSudoPassword()) Toast.makeText(context, "Password sudo dibatalkan", Toast.LENGTH_SHORT).show() }
+                    uiScope.launch { if (!current.typeSudoPassword()) Toast.makeText(context, S.get(R.string.term_sudo_cancelled), Toast.LENGTH_SHORT).show() }
                 })
-                DropdownMenuItem(text = { Text("Sambung ulang") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_reconnect)) }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = {
                     dismiss(); current.reconnectNow()
                 })
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text("Tutup tab") }, leadingIcon = { Icon(Icons.Rounded.Close, null) }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.term_close_tab)) }, leadingIcon = { Icon(Icons.Rounded.Close, null) }, onClick = {
                     dismiss(); mgr.closeTerminal(current.id)
                 })
                 if (current.tmuxName != null) {
                     DropdownMenuItem(
-                        text = { Text("Tutup & akhiri sesi tmux", color = Palette.Danger) },
+                        text = { Text(stringResource(R.string.term_close_kill_tmux), color = Palette.Danger) },
                         leadingIcon = { Icon(Icons.Rounded.Close, null, tint = Palette.Danger) },
                         onClick = { dismiss(); confirmKill = current },
                     )
@@ -322,7 +325,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (askPassword) {
-                    SuggestionPill("Isi password sudo", icon = Icons.Rounded.Key, color = Palette.Warn) {
+                    SuggestionPill(stringResource(R.string.term_fill_sudo), icon = Icons.Rounded.Key, color = Palette.Warn) {
                         uiScope.launch { current.typeSudoPassword() }
                     }
                 }
@@ -356,14 +359,14 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             onPaste = { clipboardText(context)?.let { viewHolder[0]?.paste(it) } },
             leading = {
                 ActionKey(Icons.Rounded.AutoAwesome, "Snippet") { showSnippets = true }
-                ActionKey(Icons.Rounded.Key, "Ketik password sudo") {
-                    uiScope.launch { if (!current.typeSudoPassword()) Toast.makeText(context, "Password sudo dibatalkan", Toast.LENGTH_SHORT).show() }
+                ActionKey(Icons.Rounded.Key, stringResource(R.string.term_type_sudo)) {
+                    uiScope.launch { if (!current.typeSudoPassword()) Toast.makeText(context, S.get(R.string.term_sudo_cancelled), Toast.LENGTH_SHORT).show() }
                 }
                 Box {
                     ActionKey(Icons.Rounded.MoreHoriz, "Menu") { moreOpen = true }
                     DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) { terminalMenu { moreOpen = false } }
                 }
-                ActionKey(Icons.Rounded.AttachFile, "File (SFTP)") { nav.sftp(current.host.id) }
+                ActionKey(Icons.Rounded.AttachFile, stringResource(R.string.term_files_sftp)) { nav.sftp(current.host.id) }
             },
         )
     }
@@ -372,15 +375,15 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
         var p by remember { mutableStateOf(initial) }
         AlertDialog(
             onDismissRequest = { editPath = null },
-            title = { Text("Edit file") },
+            title = { Text(stringResource(R.string.term_edit_file_title)) },
             text = {
                 Column {
                     OutlinedTextField(
-                        p, { p = it }, label = { Text("Path file di ${current.host.label}") }, singleLine = true,
+                        p, { p = it }, label = { Text(stringResource(R.string.term_edit_file_path, current.host.label)) }, singleLine = true,
                         textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = Mono),
                     )
                     Spacer(Modifier.height(6.dp))
-                    Text("Contoh: ~/.bashrc, /etc/nginx/nginx.conf. File yang belum ada akan dibuat saat disimpan.",
+                    Text(stringResource(R.string.term_edit_file_hint),
                         style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
                 }
             },
@@ -388,9 +391,9 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                 TextButton(enabled = p.isNotBlank() && !p.endsWith("/"), onClick = {
                     editPath = null
                     nav.editor(current.host.id, p.trim())
-                }) { Text("Buka") }
+                }) { Text(stringResource(R.string.term_open)) }
             },
-            dismissButton = { TextButton(onClick = { editPath = null }) { Text("Batal") } },
+            dismissButton = { TextButton(onClick = { editPath = null }) { Text(stringResource(R.string.term_cancel)) } },
         )
     }
 
@@ -427,9 +430,9 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
 
     confirmKill?.let { s ->
         ConfirmDialog(
-            title = "Akhiri sesi tmux?",
-            message = "Sesi tmux \"${s.tmuxName}\" di ${s.host.label} akan dihentikan beserta semua proses di dalamnya.",
-            confirmText = "Akhiri", danger = true,
+            title = stringResource(R.string.term_kill_tmux_title),
+            message = stringResource(R.string.term_kill_tmux_message, s.tmuxName ?: "", s.host.label),
+            confirmText = stringResource(R.string.term_kill), danger = true,
             onConfirm = { mgr.closeTerminal(s.id, killTmux = true) },
             onDismiss = { confirmKill = null },
         )
@@ -457,7 +460,7 @@ private fun TerminalControls(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ControlSquare(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali", tint = Palette.Accent) }
+        ControlSquare(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.term_back), tint = Palette.Accent) }
         Surface(
             color = Palette.Accent.copy(alpha = 0.14f),
             shape = RoundedCornerShape(16.dp),
@@ -476,16 +479,16 @@ private fun TerminalControls(
                             listOfNotNull(
                                 current.tmuxName?.let { "tmux: $it" },
                                 if (state != SessionState.CONNECTED) stateLabel(state) else null,
-                                if (sessions.size > 1) "${sessions.size} sesi" else null,
+                                if (sessions.size > 1) stringResource(R.string.term_sessions_count, sessions.size) else null,
                             ).joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
-                IconButton(onClick = onCloseSession) { Icon(Icons.Rounded.Close, "Tutup sesi ini", tint = Palette.Accent) }
+                IconButton(onClick = onCloseSession) { Icon(Icons.Rounded.Close, stringResource(R.string.term_close_this_session), tint = Palette.Accent) }
             }
         }
-        ControlSquare(onClick = onNewSession) { Icon(Icons.Rounded.Add, "Sesi baru", tint = Palette.Accent) }
+        ControlSquare(onClick = onNewSession) { Icon(Icons.Rounded.Add, stringResource(R.string.term_new_session), tint = Palette.Accent) }
         ControlSquare(onClick = onKeyboard) { Icon(Icons.Rounded.Keyboard, "Keyboard", tint = Palette.Accent) }
     }
 }
@@ -542,11 +545,11 @@ private fun StatusBanner(s: TerminalSession) {
     val error by s.error.collectAsState()
     if (state == SessionState.CONNECTED) return
     val (bg, text) = when (state) {
-        SessionState.CONNECTING -> Palette.SurfaceHigh to "Menyambung ke ${s.host.address}…"
+        SessionState.CONNECTING -> Palette.SurfaceHigh to stringResource(R.string.term_banner_connecting, s.host.address)
         SessionState.RECONNECTING -> Palette.Warn.copy(alpha = 0.15f) to
-            ("Koneksi terputus. Menyambung ulang…" + if (s.isPersistent) " Proses di tmux tetap berjalan di server." else "")
-        SessionState.FAILED -> Palette.Danger.copy(alpha = 0.15f) to (error ?: "Gagal tersambung")
-        SessionState.ENDED -> Palette.SurfaceHigh to "Sesi selesai."
+            stringResource(if (s.isPersistent) R.string.term_banner_reconnecting_tmux else R.string.term_banner_reconnecting)
+        SessionState.FAILED -> Palette.Danger.copy(alpha = 0.15f) to (error ?: stringResource(R.string.term_banner_failed))
+        SessionState.ENDED -> Palette.SurfaceHigh to stringResource(R.string.term_banner_ended)
         else -> Palette.SurfaceHigh to stateLabel(state)
     }
     Row(
@@ -560,7 +563,7 @@ private fun StatusBanner(s: TerminalSession) {
         Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
         if (state != SessionState.CONNECTING) {
             TextButton(onClick = { s.reconnectNow() }) {
-                Text(if (state == SessionState.RECONNECTING) "Sekarang" else "Sambung ulang")
+                Text(stringResource(if (state == SessionState.RECONNECTING) R.string.term_now else R.string.term_reconnect))
             }
         }
     }
@@ -572,15 +575,15 @@ private fun SelectionBar(onCopy: () -> Unit, onSelectAll: () -> Unit, onPaste: (
         Modifier.fillMaxWidth().background(Palette.SurfaceHigh).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Seret untuk memilih", style = MaterialTheme.typography.labelMedium, color = Palette.TextDim, modifier = Modifier.weight(1f).padding(start = 8.dp))
-        IconButton(onClick = onSelectAll) { Icon(Icons.Rounded.SelectAll, "Pilih layar") }
-        IconButton(onClick = onPaste) { Icon(Icons.Rounded.ContentPaste, "Tempel") }
+        Text(stringResource(R.string.term_drag_to_select), style = MaterialTheme.typography.labelMedium, color = Palette.TextDim, modifier = Modifier.weight(1f).padding(start = 8.dp))
+        IconButton(onClick = onSelectAll) { Icon(Icons.Rounded.SelectAll, stringResource(R.string.term_select_screen)) }
+        IconButton(onClick = onPaste) { Icon(Icons.Rounded.ContentPaste, stringResource(R.string.term_paste)) }
         TextButton(onClick = onCopy) {
             Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
-            Text("Salin")
+            Text(stringResource(R.string.term_copy))
         }
-        IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Batal") }
+        IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.term_cancel)) }
     }
 }
 
@@ -681,7 +684,7 @@ private fun SnippetPicker(snippets: List<Snippet>, onPick: (Snippet) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
         Text("Snippet", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         if (snippets.isEmpty()) {
-            Text("Belum ada snippet. Tambahkan di tab Snippet di layar utama.", color = Palette.TextDim, modifier = Modifier.padding(20.dp))
+            Text(stringResource(R.string.term_no_snippets), color = Palette.TextDim, modifier = Modifier.padding(20.dp))
         }
         LazyColumn(Modifier.heightIn(max = 480.dp)) {
             items(snippets, key = { it.id }) { sn ->
@@ -701,7 +704,7 @@ private fun SnippetPicker(snippets: List<Snippet>, onPick: (Snippet) -> Unit) {
                         }
                         Text(sn.command, fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    if (!sn.autoRun) Text("tanpa ⏎", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+                    if (!sn.autoRun) Text(stringResource(R.string.term_no_enter), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
                 }
             }
         }
@@ -712,7 +715,7 @@ private fun SnippetPicker(snippets: List<Snippet>, onPick: (Snippet) -> Unit) {
 fun copy(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("terminal", text))
-    Toast.makeText(context, "Disalin", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, S.get(R.string.term_copied), Toast.LENGTH_SHORT).show()
 }
 
 fun clipboardText(context: Context): String? {

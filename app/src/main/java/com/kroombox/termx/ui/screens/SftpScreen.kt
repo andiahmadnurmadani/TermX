@@ -1,5 +1,8 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.rounded.Close
 import android.content.ContentResolver
@@ -245,13 +248,13 @@ class SftpController(private val hostId: String, private val scope: CoroutineSco
                             transfer = Transfer(e.name, false, done, total)
                         }
                     }
-                } ?: throw java.io.IOException("Tidak bisa menulis file tujuan")
+                } ?: throw java.io.IOException(S.get(R.string.sftp_err_cannot_write_target))
             } finally {
                 rf.close()
                 transfer = null
             }
         }
-        onDone("${e.name} diunduh")
+        onDone(S.get(R.string.sftp_downloaded, e.name))
     }
 
     fun upload(source: Uri, resolver: ContentResolver, onDone: (String) -> Unit) = task {
@@ -280,18 +283,18 @@ class SftpController(private val hostId: String, private val scope: CoroutineSco
                         }
                     }
                     out.close()
-                } ?: throw java.io.IOException("Tidak bisa membaca file sumber")
+                } ?: throw java.io.IOException(S.get(R.string.sftp_err_cannot_read_source))
             } finally {
                 rf.close()
                 transfer = null
             }
         }
         listNow()
-        onDone("$name diunggah")
+        onDone(S.get(R.string.sftp_uploaded, name))
     }
 
     fun readText(e: RemoteEntry, onLoaded: (String) -> Unit) = task {
-        if (e.size > 512 * 1024) throw java.io.IOException("File terlalu besar untuk dibuka (> 512 KB). Unduh saja.")
+        if (e.size > 512 * 1024) throw java.io.IOException(S.get(R.string.sftp_err_too_large))
         val c = client()
         val text = withContext(Dispatchers.IO) {
             val rf = c.open(e.path, EnumSet.of(OpenMode.READ))
@@ -313,7 +316,7 @@ class SftpController(private val hostId: String, private val scope: CoroutineSco
             }
         }
         listNow()
-        onDone("${e.name} disimpan")
+        onDone(S.get(R.string.sftp_saved, e.name))
     }
 
     fun close() {
@@ -332,7 +335,9 @@ class SftpController(private val hostId: String, private val scope: CoroutineSco
     }
 }
 
-private val dateFmt = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id"))
+/** Format tanggal mengikuti bahasa aplikasi. */
+private val dateFmt: SimpleDateFormat
+    get() = SimpleDateFormat("dd MMM yyyy HH:mm", com.kroombox.termx.i18n.Lang.context().resources.configuration.locales[0])
 
 fun permString(mask: Int): String {
     val chars = "rwxrwxrwx"
@@ -393,31 +398,31 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String
                         )
                     }
                 },
-                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.sftp_back)) } },
                 // Hanya aksi utama di bar; sisanya di menu ⋮ supaya judul tidak terdesak.
                 actions = {
-                    IconButton(onClick = { ctl.refresh() }) { Icon(Icons.Rounded.Refresh, "Segarkan") }
-                    IconButton(onClick = { newFile = true }) { Icon(Icons.AutoMirrored.Rounded.NoteAdd, "File baru") }
+                    IconButton(onClick = { ctl.refresh() }) { Icon(Icons.Rounded.Refresh, stringResource(R.string.sftp_refresh)) }
+                    IconButton(onClick = { newFile = true }) { Icon(Icons.AutoMirrored.Rounded.NoteAdd, stringResource(R.string.sftp_new_file)) }
                     Box {
-                        IconButton(onClick = { topMenu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
+                        IconButton(onClick = { topMenu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.sftp_menu)) }
                         DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                             DropdownMenuItem(
-                                text = { Text("Folder induk") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) },
+                                text = { Text(stringResource(R.string.sftp_parent_folder)) }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) },
                                 onClick = { topMenu = false; ctl.up() },
                             )
                             DropdownMenuItem(
-                                text = { Text("Folder baru") }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) },
+                                text = { Text(stringResource(R.string.sftp_new_folder)) }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) },
                                 onClick = { topMenu = false; newFolder = true },
                             )
                             DropdownMenuItem(
-                                text = { Text(if (ctl.showHidden) "Sembunyikan file tersembunyi" else "Tampilkan file tersembunyi") },
+                                text = { Text(stringResource(if (ctl.showHidden) R.string.sftp_hide_hidden else R.string.sftp_show_hidden)) },
                                 leadingIcon = { Icon(Icons.Rounded.Visibility, null, tint = if (ctl.showHidden) Palette.Accent else Palette.TextDim) },
                                 onClick = { topMenu = false; ctl.showHidden = !ctl.showHidden },
                             )
                             if (sessionId != null) {
                                 HorizontalDivider()
                                 DropdownMenuItem(
-                                    text = { Text("Tutup sesi SFTP", color = Palette.Danger) },
+                                    text = { Text(stringResource(R.string.sftp_close_session), color = Palette.Danger) },
                                     leadingIcon = { Icon(Icons.Rounded.Close, null, tint = Palette.Danger) },
                                     onClick = { topMenu = false; TermXApp.container.sessions.closeSftp(sessionId); nav.back() },
                                 )
@@ -430,7 +435,7 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { uploader.launch(arrayOf("*/*")) }, containerColor = MaterialTheme.colorScheme.primary) {
-                Icon(Icons.Rounded.FileUpload, "Unggah")
+                Icon(Icons.Rounded.FileUpload, stringResource(R.string.sftp_upload))
             }
         },
     ) { pad ->
@@ -440,7 +445,8 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String
             ctl.transfer?.let { t ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
                     Text(
-                        "${if (t.upload) "Mengunggah" else "Mengunduh"} ${t.name} — ${formatBytes(t.done)}${if (t.total > 0) " / ${formatBytes(t.total)}" else ""}",
+                        stringResource(if (t.upload) R.string.sftp_uploading else R.string.sftp_downloading, t.name) +
+                            " — ${formatBytes(t.done)}${if (t.total > 0) " / ${formatBytes(t.total)}" else ""}",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     if (t.total > 0) LinearProgressIndicator(progress = { t.done.toFloat() / t.total }, modifier = Modifier.fillMaxWidth())
@@ -471,19 +477,19 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String
     }
 
     if (newFolder) {
-        NameDialog("Folder baru", "", onDismiss = { newFolder = false }) { ctl.mkdir(it) }
+        NameDialog(stringResource(R.string.sftp_new_folder), "", onDismiss = { newFolder = false }) { ctl.mkdir(it) }
     }
-    renaming?.let { e -> NameDialog("Ganti nama", e.name, onDismiss = { renaming = null }) { ctl.rename(e, it) } }
+    renaming?.let { e -> NameDialog(stringResource(R.string.sftp_rename), e.name, onDismiss = { renaming = null }) { ctl.rename(e, it) } }
     deleting?.let { e ->
         ConfirmDialog(
-            title = "Hapus ${if (e.isDir) "folder" else "file"}?",
-            message = "\"${e.name}\"${if (e.isDir) " beserta seluruh isinya" else ""} akan dihapus permanen dari server.",
-            confirmText = "Hapus", danger = true,
+            title = stringResource(if (e.isDir) R.string.sftp_delete_folder_title else R.string.sftp_delete_file_title),
+            message = stringResource(if (e.isDir) R.string.sftp_delete_folder_message else R.string.sftp_delete_file_message, e.name),
+            confirmText = stringResource(R.string.sftp_delete), danger = true,
             onConfirm = { ctl.delete(e) }, onDismiss = { deleting = null },
         )
     }
     if (newFile) {
-        NameDialog("File baru", "", onDismiss = { newFile = false }) { name -> nav.editor(hostId, ctl.join(name), isNew = true) }
+        NameDialog(stringResource(R.string.sftp_new_file), "", onDismiss = { newFile = false }) { name -> nav.editor(hostId, ctl.join(name), isNew = true) }
     }
 }
 
@@ -542,16 +548,16 @@ private fun EntryRow(
             )
         }
         Box {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
+            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.sftp_menu)) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 if (!e.isDir) {
-                    DropdownMenuItem(text = { Text("Unduh") }, leadingIcon = { Icon(Icons.Rounded.FileDownload, null) }, onClick = { menu = false; onDownload() })
-                    DropdownMenuItem(text = { Text("Lihat / edit") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onView() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.sftp_download)) }, leadingIcon = { Icon(Icons.Rounded.FileDownload, null) }, onClick = { menu = false; onDownload() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.sftp_view_edit)) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onView() })
                 }
-                DropdownMenuItem(text = { Text("Ganti nama") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onRename() })
-                DropdownMenuItem(text = { Text("Salin path") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = { menu = false; onCopyPath() })
+                DropdownMenuItem(text = { Text(stringResource(R.string.sftp_rename)) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onRename() })
+                DropdownMenuItem(text = { Text(stringResource(R.string.sftp_copy_path)) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = { menu = false; onCopyPath() })
                 DropdownMenuItem(
-                    text = { Text("Hapus", color = Palette.Danger) },
+                    text = { Text(stringResource(R.string.sftp_delete), color = Palette.Danger) },
                     leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Palette.Danger) },
                     onClick = { menu = false; onDelete() },
                 )
@@ -566,10 +572,10 @@ private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, on
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Nama") }) },
+        text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text(stringResource(R.string.sftp_name)) }) },
         confirmButton = {
-            TextButton(enabled = name.isNotBlank() && !name.contains('/'), onClick = { onDismiss(); onConfirm(name.trim()) }) { Text("OK") }
+            TextButton(enabled = name.isNotBlank() && !name.contains('/'), onClick = { onDismiss(); onConfirm(name.trim()) }) { Text(stringResource(R.string.sftp_ok)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.sftp_cancel)) } },
     )
 }

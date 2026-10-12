@@ -143,6 +143,8 @@ data class AppSettings(
     val keepAliveInBackground: Boolean = true,
     /** Dialog izin "tanpa batasan baterai" sudah pernah ditampilkan. */
     val batteryPromptShown: Boolean = false,
+    /** Bahasa aplikasi: "en" (default), "id", atau "system". */
+    val language: String = "en",
     /** Saran perintah (autocomplete) di atas bar tombol terminal. */
     val autocomplete: Boolean = true,
     /** Isi otomatis password sudo saat prompt `[sudo] password for <user>` muncul. */
@@ -203,20 +205,20 @@ data class SavedSession(
 )
 
 fun defaultSnippets(): List<Snippet> = listOf(
-    Snippet(name = "Info sistem", command = "uname -a && uptime && free -h && df -h /", description = "Ringkasan host", icon = "mi:info"),
+    Snippet(name = "System info", command = "uname -a && uptime && free -h && df -h /", description = "Host summary", icon = "mi:info"),
     Snippet(
-        name = "Container Docker",
+        name = "Docker containers",
         command = "docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'",
-        description = "Daftar container berjalan (dengan sudo)",
+        description = "Running containers (with sudo)",
         icon = "os:docker",
         useSudo = true,
     ),
-    Snippet(name = "Log Docker", command = "docker logs --tail 100 -f ", description = "Ketik nama container lalu Enter", autoRun = false, icon = "mi:history", useSudo = true),
-    Snippet(name = "Sesi tmux", command = "tmux ls", description = "Lihat sesi tmux di server", icon = "mi:layers"),
-    Snippet(name = "Proses teratas", command = "ps aux --sort=-%cpu | head -15", description = "15 proses dengan CPU tertinggi", icon = "mi:speed"),
-    Snippet(name = "Log sistem", command = "journalctl -n 100 --no-pager", description = "100 baris log terakhir", icon = "mi:list", useSudo = true),
-    Snippet(name = "Update paket", command = "apt update && apt list --upgradable", description = "Debian/Ubuntu", icon = "mi:update", useSudo = true),
-    Snippet(name = "Claude Code", command = "claude", description = "Jalankan Claude Code (di dalam tmux tetap hidup)", icon = "mi:code"),
+    Snippet(name = "Docker logs", command = "docker logs --tail 100 -f ", description = "Type the container name, then Enter", autoRun = false, icon = "mi:history", useSudo = true),
+    Snippet(name = "tmux sessions", command = "tmux ls", description = "List tmux sessions on the server", icon = "mi:layers"),
+    Snippet(name = "Top processes", command = "ps aux --sort=-%cpu | head -15", description = "15 processes with the highest CPU", icon = "mi:speed"),
+    Snippet(name = "System log", command = "journalctl -n 100 --no-pager", description = "Last 100 log lines", icon = "mi:list", useSudo = true),
+    Snippet(name = "Package updates", command = "apt update && apt list --upgradable", description = "Debian/Ubuntu", icon = "mi:update", useSudo = true),
+    Snippet(name = "Claude Code", command = "claude", description = "Run Claude Code (stays alive inside tmux)", icon = "mi:code"),
 )
 
 /** Palet aksen untuk host/grup. */

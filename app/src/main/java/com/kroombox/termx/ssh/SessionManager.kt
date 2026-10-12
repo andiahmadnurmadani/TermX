@@ -1,5 +1,7 @@
 package com.kroombox.termx.ssh
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -116,8 +118,8 @@ class SessionManager(private val context: Context, val vault: Vault) {
      * Ambil koneksi tersambung untuk host (sambungkan bila perlu). Blocking — panggil dari thread IO.
      */
     fun connectionFor(hostId: String, depth: Int = 0): SshConnection {
-        if (depth > 3) throw SshException("Rantai jump host terlalu panjang")
-        val host = vault.host(hostId) ?: throw SshException("Host tidak ada")
+        if (depth > 3) throw SshException(S.get(R.string.ssh_jump_chain_too_long), fatal = true)
+        val host = vault.host(hostId) ?: throw SshException(S.get(R.string.ssh_host_missing), fatal = true)
         synchronized(lockFor(hostId)) {
             val existing = synchronized(connections) { connections[hostId] }
             if (existing != null && existing.isConnected) return existing
@@ -191,7 +193,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
         if (loadHistory) history.load(s.historyKey)?.let { saved ->
             s.emulator.resize(saved.cols, saved.rows)
             s.emulator.append(saved.text)
-            s.emulator.append("\r\n\u001b[2m── riwayat sebelumnya ──\u001b[0m\r\n")
+            s.emulator.append("\r\n\u001b[2m" + S.get(R.string.ssh_previous_history) + "\u001b[0m\r\n")
         }
         s.savedVersion = s.screenVersion.get()
         _sessions.update { it + s }
@@ -367,7 +369,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
         storedSudoPassword(hostId)?.let { return it }
         if (!ask) return null
         val h = vault.host(hostId) ?: return null
-        val ans = Prompts.askPassword("Password sudo · ${h.label}", "sudo untuk ${h.username}@${h.hostname}") ?: return null
+        val ans = Prompts.askPassword(S.get(R.string.ssh_sudo_password_title, h.label), S.get(R.string.ssh_sudo_password_message, h.username, h.hostname)) ?: return null
         if (ans.save) {
             vault.host(hostId)?.let { vault.saveHost(it.copy(sudoPasswordEnc = SecretBox.encrypt(ans.password))) }
         }
@@ -388,15 +390,15 @@ class SessionManager(private val context: Context, val vault: Vault) {
         try {
             conn.execSudo(script, storedSudoPassword(hostId), timeoutSec)
         } catch (e: SshConnection.SudoPasswordRequired) {
-            val pw = sudoPassword(hostId, ask = true) ?: throw SshException("Password sudo dibatalkan")
+            val pw = sudoPassword(hostId, ask = true) ?: throw SshException(S.get(R.string.ssh_sudo_password_cancelled))
             try {
                 conn.execSudo(script, pw, timeoutSec)
-            } catch (e2: SshException) {
-                if (e2.message?.contains("salah") == true) forgetSudoPassword(hostId)
+            } catch (e2: SudoWrongPasswordException) {
+                forgetSudoPassword(hostId)
                 throw e2
             }
-        } catch (e: SshException) {
-            if (e.message?.contains("salah") == true) forgetSudoPassword(hostId)
+        } catch (e: SudoWrongPasswordException) {
+            forgetSudoPassword(hostId)
             throw e
         }
     }

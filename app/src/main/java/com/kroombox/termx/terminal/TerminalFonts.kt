@@ -1,5 +1,6 @@
 package com.kroombox.termx.terminal
 
+import com.kroombox.termx.i18n.S
 import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -38,7 +39,8 @@ object TerminalFonts {
     )
 
     fun options(settings: AppSettings): List<FontOption> =
-        builtIn + settings.customFonts.map { FontOption(it.id, it.name, custom = it, ligatures = true) }
+        builtIn.map { if (it.id == SYSTEM_ID) it.copy(name = S.get(R.string.font_system_monospace)) else it } +
+            settings.customFonts.map { FontOption(it.id, it.name, custom = it, ligatures = true) }
 
     fun option(settings: AppSettings, id: String = settings.fontId): FontOption =
         options(settings).firstOrNull { it.id == id } ?: builtIn.first()
@@ -86,30 +88,30 @@ object TerminalFonts {
      * bukan font yang valid. Memberi peringatan bila font tidak monospace.
      */
     fun import(context: Context, uri: Uri, displayName: String?): ImportResult {
-        val rawName = displayName?.substringBeforeLast('.')?.ifBlank { null } ?: "Font impor"
+        val rawName = displayName?.substringBeforeLast('.')?.ifBlank { null } ?: S.get(R.string.font_imported)
         val ext = displayName?.substringAfterLast('.', "ttf")?.lowercase()?.takeIf { it == "ttf" || it == "otf" } ?: "ttf"
         val id = newId()
         val fileName = "$id.$ext"
         val target = File(fontDir(context), fileName)
         context.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use { input.copyTo(it) }
-        } ?: throw IllegalArgumentException("File tidak bisa dibaca")
+        } ?: throw IllegalArgumentException(S.get(R.string.font_unreadable))
 
         val tf = try {
             Typeface.createFromFile(target)
         } catch (e: Exception) {
             target.delete()
-            throw IllegalArgumentException("Bukan file font yang valid (.ttf / .otf)")
+            throw IllegalArgumentException(S.get(R.string.font_invalid))
         }
         if (tf == Typeface.DEFAULT || target.length() < 1024) {
             target.delete()
-            throw IllegalArgumentException("Bukan file font yang valid (.ttf / .otf)")
+            throw IllegalArgumentException(S.get(R.string.font_invalid))
         }
         val paint = Paint().apply { typeface = tf; textSize = 40f }
         val wi = paint.measureText("i")
         val wm = paint.measureText("M")
         val warning = if (wm <= 0f || abs(wi - wm) / wm > 0.02f) {
-            "Font ini tidak monospace — kolom terminal bisa tidak rata."
+            S.get(R.string.font_not_monospace)
         } else null
         val name = rawName.replace('_', ' ').replace('-', ' ').trim()
         return ImportResult(CustomFont(id = id, name = name, regularFile = fileName), warning)

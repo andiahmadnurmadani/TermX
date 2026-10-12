@@ -1,5 +1,9 @@
 package com.kroombox.termx.ui
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -182,20 +186,17 @@ private fun DisconnectAllPrompt() {
     val sessions by mgr.sessions.collectAsState()
     AlertDialog(
         onDismissRequest = { mgr.disconnectRequested.value = false },
-        title = { Text("Putuskan semua sesi?") },
+        title = { Text(stringResource(R.string.nav_disconnect_all_title)) },
         text = {
-            Text(
-                "${sessions.size} tab terminal dan semua port forward akan ditutup, dan notifikasi akan hilang. " +
-                    "Sesi tmux di server tetap berjalan dan bisa dibuka lagi dari tab Sesi.",
-            )
+            Text(stringResource(R.string.nav_disconnect_all_message, sessions.size))
         },
         confirmButton = {
             TextButton(onClick = {
                 mgr.disconnectRequested.value = false
                 mgr.closeAll()
-            }) { Text("Putuskan semua", color = Palette.Danger, fontWeight = FontWeight.Bold) }
+            }) { Text(stringResource(R.string.nav_disconnect_all), color = Palette.Danger, fontWeight = FontWeight.Bold) }
         },
-        dismissButton = { TextButton(onClick = { mgr.disconnectRequested.value = false }) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = { mgr.disconnectRequested.value = false }) { Text(stringResource(R.string.nav_cancel)) } },
     )
 }
 
@@ -214,31 +215,28 @@ private fun BatteryPrompt() {
     fun done() = TermXApp.container.vault.updateSettings { it.copy(batteryPromptShown = true) }
     AlertDialog(
         onDismissRequest = { done() },
-        title = { Text("Jaga sesi tetap tersambung") },
+        title = { Text(stringResource(R.string.nav_battery_title)) },
         text = {
-            Text(
-                "Agar sesi SSH tidak diputus Android saat layar mati atau aplikasi di latar belakang, izinkan aplikasi ini " +
-                    "berjalan tanpa batasan baterai. Sesi hanya berakhir saat Anda sendiri memutuskannya.",
-            )
+            Text(stringResource(R.string.nav_battery_message))
         },
         confirmButton = {
             TextButton(onClick = {
                 done()
                 com.kroombox.termx.service.BatteryOptimization.request(context)
-            }) { Text("Izinkan", fontWeight = FontWeight.Bold) }
+            }) { Text(stringResource(R.string.nav_allow), fontWeight = FontWeight.Bold) }
         },
-        dismissButton = { TextButton(onClick = { done() }) { Text("Nanti") } },
+        dismissButton = { TextButton(onClick = { done() }) { Text(stringResource(R.string.nav_later)) } },
     )
 }
 
-private data class Tab(val label: String, val icon: ImageVector)
+private data class Tab(@StringRes val label: Int, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("Host", Icons.Rounded.Dns),
-    Tab("Sesi", Icons.Rounded.Terminal),
-    Tab("Snippet", Icons.Rounded.Bolt),
-    Tab("Keychain", Icons.Rounded.VpnKey),
-    Tab("Lainnya", Icons.Rounded.MoreHoriz),
+    Tab(R.string.nav_tab_hosts, Icons.Rounded.Dns),
+    Tab(R.string.nav_tab_sessions, Icons.Rounded.Terminal),
+    Tab(R.string.nav_tab_snippets, Icons.Rounded.Bolt),
+    Tab(R.string.nav_tab_keychain, Icons.Rounded.VpnKey),
+    Tab(R.string.nav_tab_more, Icons.Rounded.MoreHoriz),
 )
 
 @Composable
@@ -255,12 +253,12 @@ private fun HomeScaffold(nav: Nav) {
                         onClick = { tab = i },
                         icon = {
                             if (i == 1 && sessions.isNotEmpty()) {
-                                BadgedBox(badge = { Badge { Text("${sessions.size}") } }) { Icon(t.icon, t.label) }
+                                BadgedBox(badge = { Badge { Text("${sessions.size}") } }) { Icon(t.icon, stringResource(t.label)) }
                             } else {
-                                Icon(t.icon, t.label)
+                                Icon(t.icon, stringResource(t.label))
                             }
                         },
-                        label = { Text(t.label) },
+                        label = { Text(stringResource(t.label)) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             indicatorColor = MaterialTheme.colorScheme.primaryContainer,
@@ -297,32 +295,31 @@ private fun HostKeyDialog(p: Prompt.HostKey) {
     AlertDialog(
         onDismissRequest = { Prompts.answer(p, false) },
         icon = { if (p.changed) Icon(Icons.Rounded.Warning, null, tint = Palette.Danger) },
-        title = { Text(if (p.changed) "Host key BERUBAH!" else "Host baru") },
+        title = { Text(stringResource(if (p.changed) R.string.nav_hostkey_changed_title else R.string.nav_hostkey_new_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (p.changed) {
                     Text(
-                        "Kunci server ${p.hostPort} berbeda dari yang tersimpan. Ini bisa berarti server di-reinstall — " +
-                            "atau ada serangan man-in-the-middle. Lanjutkan hanya bila Anda yakin.",
+                        stringResource(R.string.nav_hostkey_changed_message, p.hostPort),
                         color = Palette.Danger,
                     )
                 } else {
-                    Text("Keaslian ${p.hostPort} belum pernah diverifikasi. Cocokkan fingerprint berikut dengan server:")
+                    Text(stringResource(R.string.nav_hostkey_new_message, p.hostPort))
                 }
                 Text(p.keyType, style = MaterialTheme.typography.labelLarge)
                 Text(p.fingerprint, fontFamily = Mono, style = MaterialTheme.typography.bodySmall)
                 if (p.changed && p.oldFingerprint != null) {
-                    Text("Sebelumnya:", style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
+                    Text(stringResource(R.string.nav_hostkey_previous), style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
                     Text(p.oldFingerprint, fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = { Prompts.answer(p, true) }) {
-                Text(if (p.changed) "Percayai kunci baru" else "Percayai & sambung", fontWeight = FontWeight.Bold)
+                Text(stringResource(if (p.changed) R.string.nav_hostkey_trust_new else R.string.nav_hostkey_trust_connect), fontWeight = FontWeight.Bold)
             }
         },
-        dismissButton = { TextButton(onClick = { Prompts.answer(p, false) }) { Text("Tolak") } },
+        dismissButton = { TextButton(onClick = { Prompts.answer(p, false) }) { Text(stringResource(R.string.nav_reject)) } },
     )
 }
 
@@ -337,19 +334,19 @@ private fun PasswordDialog(p: Prompt.Password) {
             Column {
                 Text(p.message, fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
                 Spacer(Modifier.height(12.dp))
-                PasswordField(pw, { pw = it }, "Password")
+                PasswordField(pw, { pw = it }, stringResource(R.string.nav_password))
                 if (p.allowSave) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = save, onCheckedChange = { save = it })
-                        Text("Simpan (terenkripsi di perangkat)")
+                        Text(stringResource(R.string.nav_save_encrypted))
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { Prompts.answer(p, PasswordAnswer(pw, save)) }, enabled = pw.isNotEmpty()) { Text("Masuk") }
+            TextButton(onClick = { Prompts.answer(p, PasswordAnswer(pw, save)) }, enabled = pw.isNotEmpty()) { Text(stringResource(R.string.nav_sign_in)) }
         },
-        dismissButton = { TextButton(onClick = { Prompts.answer(p, null) }) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = { Prompts.answer(p, null) }) { Text(stringResource(R.string.nav_cancel)) } },
     )
 }
 
@@ -362,10 +359,10 @@ fun stateColor(s: SessionState) = when (s) {
 }
 
 fun stateLabel(s: SessionState) = when (s) {
-    SessionState.CONNECTED -> "Tersambung"
-    SessionState.CONNECTING -> "Menyambung…"
-    SessionState.RECONNECTING -> "Menyambung ulang…"
-    SessionState.FAILED -> "Gagal"
-    SessionState.ENDED -> "Selesai"
-    SessionState.CLOSED -> "Ditutup"
+    SessionState.CONNECTED -> S.get(R.string.nav_state_connected)
+    SessionState.CONNECTING -> S.get(R.string.nav_state_connecting)
+    SessionState.RECONNECTING -> S.get(R.string.nav_state_reconnecting)
+    SessionState.FAILED -> S.get(R.string.nav_state_failed)
+    SessionState.ENDED -> S.get(R.string.nav_state_ended)
+    SessionState.CLOSED -> S.get(R.string.nav_state_closed)
 }

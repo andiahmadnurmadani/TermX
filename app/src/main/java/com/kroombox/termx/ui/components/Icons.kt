@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.components
 
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -240,7 +242,7 @@ fun IconPicker(
     onSelect: (String) -> Unit,
     accentColor: Color,
     allowAuto: Boolean,
-    autoLabel: String = "Otomatis",
+    autoLabel: String = stringResource(R.string.icons_auto),
     showOs: Boolean = true,
 ) {
     val sel = IconSpec.parse(selected)
@@ -265,12 +267,12 @@ fun IconPicker(
         if (allowAuto) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ChoiceChip(autoLabel, sel == IconSpec.Auto) { onSelect("auto") }
-                ChoiceChip("Inisial", sel == IconSpec.Initials) { onSelect("initials") }
+                ChoiceChip(stringResource(R.string.icons_initials), sel == IconSpec.Initials) { onSelect("initials") }
             }
             Spacer(Modifier.height(12.dp))
         }
         if (showOs) {
-            GroupHeader("Logo OS", OsCatalog.all.size, osOpen) { osOpen = !osOpen }
+            GroupHeader(stringResource(R.string.icons_os_logos), OsCatalog.all.size, osOpen) { osOpen = !osOpen }
             AnimatedVisibility(osOpen) {
                 FlowRow(
                     Modifier.padding(bottom = 8.dp),
@@ -283,7 +285,7 @@ fun IconPicker(
                 }
             }
         }
-        GroupHeader("Ikon", AppIcons.all.size, iconOpen) { iconOpen = !iconOpen }
+        GroupHeader(stringResource(R.string.icons_icons), AppIcons.all.size, iconOpen) { iconOpen = !iconOpen }
         AnimatedVisibility(iconOpen) {
             FlowRow(
                 Modifier.padding(bottom = 8.dp),
@@ -302,8 +304,8 @@ fun IconPicker(
                 emoji = v.take(8)
                 if (emoji.isNotBlank()) onSelect("emoji:${emoji.trim()}")
             },
-            label = { Text("Atau emoji / teks pendek") },
-            placeholder = { Text("mis. 🚀") },
+            label = { Text(stringResource(R.string.icons_emoji_label)) },
+            placeholder = { Text(stringResource(R.string.icons_emoji_placeholder)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -321,7 +323,7 @@ private fun GroupHeader(title: String, count: Int, open: Boolean, onToggle: () -
         Spacer(Modifier.width(6.dp))
         Icon(
             if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-            contentDescription = if (open) "Tutup" else "Buka", tint = Palette.TextDim,
+            contentDescription = stringResource(if (open) R.string.icons_collapse else R.string.icons_expand), tint = Palette.TextDim,
         )
     }
 }

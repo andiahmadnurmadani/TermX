@@ -17,6 +17,11 @@ class MainActivity : ComponentActivity() {
 
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        // Bahasa pilihan pengguna (default English) berlaku untuk seluruh UI.
+        super.attachBaseContext(com.kroombox.termx.i18n.Lang.wrap(newBase, TermXApp.container.vault.current.settings.language))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.i18n.S
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import com.kroombox.termx.R
@@ -94,9 +96,9 @@ fun MoreScreen(nav: Nav, modifier: Modifier = Modifier) {
         if (uri != null) {
             message = try {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(vault.exportWithoutSecrets().toByteArray()) }
-                "Konfigurasi diekspor (tanpa password & kunci privat)."
+                S.get(R.string.more_export_done)
             } catch (e: Exception) {
-                "Gagal ekspor: ${e.message}"
+                S.get(R.string.more_export_failed, e.message ?: "")
             }
         }
     }
@@ -105,38 +107,38 @@ fun MoreScreen(nav: Nav, modifier: Modifier = Modifier) {
             message = try {
                 val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
                 val n = vault.importConfig(text)
-                "$n host baru diimpor."
+                S.get(R.string.more_import_done, n)
             } catch (e: Exception) {
-                "Gagal impor: ${e.message}"
+                S.get(R.string.more_import_failed, e.message ?: "")
             }
         }
     }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("Lainnya", style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
-        MenuRow(Icons.Rounded.SwapHoriz, "Port forwarding", "Lokal, remote, dan SOCKS5") { nav.forwards() }
-        MenuRow(Icons.Rounded.Shield, "Known hosts", "Sidik jari server yang sudah dipercaya") { nav.knownHosts() }
-        MenuRow(Icons.Rounded.Settings, "Pengaturan", "Tema terminal, huruf, keyboard, latar belakang") { nav.settings() }
-        SectionHeader("Cadangan")
-        MenuRow(Icons.Rounded.FileUpload, "Ekspor konfigurasi", "Host, grup, snippet, forward — tanpa rahasia") {
+        MenuRow(Icons.Rounded.SwapHoriz, stringResource(R.string.more_forwards), stringResource(R.string.more_forwards_desc)) { nav.forwards() }
+        MenuRow(Icons.Rounded.Shield, stringResource(R.string.more_known_hosts), stringResource(R.string.more_known_hosts_desc)) { nav.knownHosts() }
+        MenuRow(Icons.Rounded.Settings, stringResource(R.string.more_settings), stringResource(R.string.more_settings_desc)) { nav.settings() }
+        SectionHeader(stringResource(R.string.more_backup))
+        MenuRow(Icons.Rounded.FileUpload, stringResource(R.string.more_export), stringResource(R.string.more_export_desc)) {
             exporter.launch("termx-backup.json")
         }
-        MenuRow(Icons.Rounded.FileDownload, "Impor konfigurasi", "Gabungkan dari file cadangan") {
+        MenuRow(Icons.Rounded.FileDownload, stringResource(R.string.more_import), stringResource(R.string.more_import_desc)) {
             importer.launch(arrayOf("application/json", "text/*", "*/*"))
         }
         message?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.Accent, modifier = Modifier.padding(8.dp))
         }
-        SectionHeader("Tentang")
+        SectionHeader(stringResource(R.string.more_about))
         AppCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Image(painterResource(R.drawable.ic_termx_logo), contentDescription = null, modifier = Modifier.size(52.dp))
                 Spacer(Modifier.width(14.dp))
                 Column {
                     Text("TermX ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
-                    Text("Klien SSH, SFTP & sesi persisten. Semua data tersimpan lokal di perangkat.", style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
-                    Text("Logo OS: Simple Icons (CC0). Merek milik pemiliknya masing-masing.", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+                    Text(stringResource(R.string.more_about_desc), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                    Text(stringResource(R.string.more_about_logos), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
                 }
             }
         }
@@ -165,6 +167,7 @@ private fun MenuRow(icon: ImageVector, title: String, subtitle: String, onClick:
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(nav: Nav) {
+    val context = LocalContext.current
     val vault = TermXApp.container.vault
     val data by vault.data.collectAsState()
     val s = data.settings
@@ -175,54 +178,88 @@ fun SettingsScreen(nav: Nav) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Pengaturan") },
-                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                title = { Text(stringResource(R.string.more_settings)) },
+                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.more_back)) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            SectionHeader("Tema terminal")
+            SectionHeader(stringResource(R.string.more_language))
+            AppCard(contentPadding = PaddingValues(8.dp)) {
+                listOf(
+                    com.kroombox.termx.i18n.Lang.ENGLISH to stringResource(R.string.more_lang_english),
+                    com.kroombox.termx.i18n.Lang.INDONESIAN to stringResource(R.string.more_lang_indonesian),
+                    com.kroombox.termx.i18n.Lang.SYSTEM to stringResource(R.string.more_lang_system),
+                ).forEach { (v, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                if (s.language != v) {
+                                    vault.updateSettings { it.copy(language = v) }
+                                    com.kroombox.termx.i18n.Lang.apply(context.applicationContext, v)
+                                    (context as? android.app.Activity)?.recreate()
+                                }
+                            }
+                            .padding(vertical = 4.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = s.language == v,
+                            onClick = {
+                                if (s.language != v) {
+                                    vault.updateSettings { it.copy(language = v) }
+                                    com.kroombox.termx.i18n.Lang.apply(context.applicationContext, v)
+                                    (context as? android.app.Activity)?.recreate()
+                                }
+                            },
+                        )
+                        Text(label, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+
+            SectionHeader(stringResource(R.string.more_terminal_theme))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TerminalTheme.all.forEach { t -> ThemePreview(t, selected = t.id == s.themeId) { vault.updateSettings { it.copy(themeId = t.id) } } }
             }
 
-            SectionHeader("Font terminal")
+            SectionHeader(stringResource(R.string.more_terminal_font))
             FontSection(s)
 
-            SectionHeader("Ukuran huruf")
+            SectionHeader(stringResource(R.string.more_font_size))
             AppCard {
-                Text("Ukuran: ${s.fontSizeSp.toInt()} sp", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.more_font_size_value, s.fontSizeSp.toInt()), style = MaterialTheme.typography.bodyLarge)
                 Slider(
                     value = s.fontSizeSp,
                     onValueChange = { v -> vault.updateSettings { it.copy(fontSizeSp = v) } },
                     valueRange = 8f..24f, steps = 15,
                 )
-                Text("Tips: cubit layar terminal untuk memperbesar/memperkecil.", style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                Text(stringResource(R.string.more_font_size_tip), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
             }
 
-            SectionHeader("Keyboard")
+            SectionHeader(stringResource(R.string.more_keyboard))
             AppCard {
                 LabeledSwitch(
-                    "Saran perintah (autocomplete)",
-                    "Saran dari riwayat perintah host, snippet, dan perintah umum muncul di atas bar tombol. Perintah yang tidak tampil di layar (mis. password) tidak disimpan.",
+                    stringResource(R.string.more_autocomplete),
+                    stringResource(R.string.more_autocomplete_desc),
                     s.autocomplete,
                 ) { v -> vault.updateSettings { it.copy(autocomplete = v) } }
                 LabeledSwitch(
-                    "Isi otomatis password sudo",
-                    "Setelah Anda menjalankan sudo, prompt \"[sudo] password for <user>\" diisi otomatis dengan password sudo host. Prompt lain hanya menampilkan tombol isi.",
+                    stringResource(R.string.more_sudo_autofill),
+                    stringResource(R.string.more_sudo_autofill_desc),
                     s.sudoAutofill,
                 ) { v -> vault.updateSettings { it.copy(sudoAutofill = v) } }
                 var cleared by remember { mutableStateOf(false) }
                 TextButton(onClick = { TermXApp.container.sessions.commandHistory.clearAll(); cleared = true }) {
-                    Text(if (cleared) "Riwayat perintah dihapus" else "Hapus riwayat perintah")
+                    Text(stringResource(if (cleared) R.string.more_history_cleared else R.string.more_clear_history))
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("Jenis keyboard di terminal", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.more_keyboard_type), style = MaterialTheme.typography.bodyLarge)
                 listOf(
-                    "standard" to ("Standar (disarankan)" to "Keyboard normal, setiap huruf langsung terkirim — paling cepat."),
-                    "text" to ("Teks dengan saran" to "Saran kata & autocorrect aktif; kata dikirim sambil diketik."),
-                    "nosuggest" to ("Tanpa saran" to "Mode lama: keyboard tipe password tanpa saran."),
+                    "standard" to (stringResource(R.string.more_kb_standard) to stringResource(R.string.more_kb_standard_desc)),
+                    "text" to (stringResource(R.string.more_kb_text) to stringResource(R.string.more_kb_text_desc)),
+                    "nosuggest" to (stringResource(R.string.more_kb_nosuggest) to stringResource(R.string.more_kb_nosuggest_desc)),
                 ).forEach { (id, label) ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
@@ -239,41 +276,41 @@ fun SettingsScreen(nav: Nav) {
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    extraKeys, { extraKeys = it }, label = { Text("Tombol tambahan") },
+                    extraKeys, { extraKeys = it }, label = { Text(stringResource(R.string.more_extra_keys)) },
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Pisahkan dengan spasi. Khusus: ESC TAB STAB (shift+tab) CTRL ALT SHIFT UP DOWN LEFT RIGHT HOME END PGUP PGDN INS DEL ENTER BKSP PASTE F1–F12. Lainnya dikirim apa adanya.",
+                    stringResource(R.string.more_extra_keys_help),
                     style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                 )
-                TextButton(onClick = { extraKeys = AppSettings.DEFAULT_EXTRA_KEYS }) { Text("Kembalikan default") }
+                TextButton(onClick = { extraKeys = AppSettings.DEFAULT_EXTRA_KEYS }) { Text(stringResource(R.string.more_restore_default)) }
             }
 
-            SectionHeader("Sesi & latar belakang")
+            SectionHeader(stringResource(R.string.more_sessions_background))
             AppCard {
-                LabeledSwitch("Host baru selalu buka di tmux", "Mati: ketuk host = terminal biasa (tmux tetap bisa dipilih)", s.defaultPersistent) { v ->
+                LabeledSwitch(stringResource(R.string.more_default_tmux), stringResource(R.string.more_default_tmux_desc), s.defaultPersistent) { v ->
                     vault.updateSettings { it.copy(defaultPersistent = v) }
                 }
                 LabeledSwitch(
-                    "Jaga koneksi di latar belakang",
-                    "Wake-lock + Wi-Fi lock selama ada sesi, agar koneksi tidak dibekukan saat layar mati. Sesi tetap berjalan sampai Anda memutuskannya.",
+                    stringResource(R.string.more_keep_alive),
+                    stringResource(R.string.more_keep_alive_desc),
                     s.keepAliveInBackground,
                 ) { v -> vault.updateSettings { it.copy(keepAliveInBackground = v) } }
                 LabeledSwitch(
-                    "Layar tetap menyala di terminal",
-                    "Layar tidak mati otomatis selama layar terminal terbuka.",
+                    stringResource(R.string.more_keep_screen_on),
+                    stringResource(R.string.more_keep_screen_on_desc),
                     s.keepScreenOn,
                 ) { v -> vault.updateSettings { it.copy(keepScreenOn = v) } }
                 BatteryRow()
-                LabeledSwitch("Getar saat bell", null, s.vibrateOnBell) { v -> vault.updateSettings { it.copy(vibrateOnBell = v) } }
+                LabeledSwitch(stringResource(R.string.more_vibrate_bell), null, s.vibrateOnBell) { v -> vault.updateSettings { it.copy(vibrateOnBell = v) } }
                 OutlinedTextField(
                     scrollback,
                     { v ->
                         scrollback = v.filter(Char::isDigit).take(6)
                         scrollback.toIntOrNull()?.let { n -> vault.updateSettings { it.copy(scrollbackLines = n.coerceIn(100, 100_000)) } }
                     },
-                    label = { Text("Baris scrollback (tab baru)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.more_scrollback)) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 )
             }
             Spacer(Modifier.height(32.dp))
@@ -315,15 +352,15 @@ fun KnownHostsScreen(nav: Nav) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Known hosts") },
-                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                title = { Text(stringResource(R.string.more_known_hosts)) },
+                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.more_back)) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
     ) { pad ->
         if (data.knownHosts.isEmpty()) {
             Box(Modifier.padding(pad)) {
-                EmptyState(Icons.Rounded.Shield, "Kosong", "Sidik jari server akan tersimpan saat pertama kali Anda konek.")
+                EmptyState(Icons.Rounded.Shield, stringResource(R.string.more_kh_empty_title), stringResource(R.string.more_kh_empty_msg))
             }
         } else {
             LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -334,9 +371,9 @@ fun KnownHostsScreen(nav: Nav) {
                                 Text(k.hostPort, style = MaterialTheme.typography.titleMedium)
                                 Text(k.keyType, style = MaterialTheme.typography.labelMedium, color = Palette.Blue)
                                 Text(k.fingerprint, style = MonoSmall)
-                                Text("ditambahkan ${timeAgo(k.addedAt)}", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+                                Text(stringResource(R.string.more_kh_added, timeAgo(k.addedAt)), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
                             }
-                            IconButton(onClick = { deleting = k }) { Icon(Icons.Rounded.Delete, "Hapus", tint = Palette.TextDim) }
+                            IconButton(onClick = { deleting = k }) { Icon(Icons.Rounded.Delete, stringResource(R.string.more_delete), tint = Palette.TextDim) }
                         }
                     }
                 }
@@ -345,9 +382,9 @@ fun KnownHostsScreen(nav: Nav) {
     }
     deleting?.let { k ->
         ConfirmDialog(
-            title = "Lupakan host key?",
-            message = "Saat konek berikutnya ke ${k.hostPort}, Anda akan diminta memverifikasi sidik jari lagi.",
-            confirmText = "Lupakan", danger = true,
+            title = stringResource(R.string.more_kh_forget_title),
+            message = stringResource(R.string.more_kh_forget_msg, k.hostPort),
+            confirmText = stringResource(R.string.more_kh_forget), danger = true,
             onConfirm = { vault.deleteKnownHost(k.hostPort, k.keyType) },
             onDismiss = { deleting = null },
         )
@@ -359,6 +396,8 @@ private fun FontSection(s: AppSettings) {
     val context = LocalContext.current
     val vault = TermXApp.container.vault
     var message by remember { mutableStateOf<String?>(null) }
+    /** 0 = berhasil, 1 = peringatan, 2 = gagal. */
+    var messageKind by remember { mutableStateOf(0) }
     var deleting by remember { mutableStateOf<CustomFont?>(null) }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -366,9 +405,11 @@ private fun FontSection(s: AppSettings) {
                 val name = SftpController.displayName(context.contentResolver, uri)
                 val r = TerminalFonts.import(context, uri, name)
                 vault.updateSettings { it.copy(customFonts = it.customFonts + r.font, fontId = r.font.id) }
-                r.warning ?: "Font \"${r.font.name}\" ditambahkan dan dipakai."
+                messageKind = if (r.warning != null) 1 else 0
+                r.warning ?: S.get(R.string.more_font_added, r.font.name)
             } catch (e: Exception) {
-                "Gagal impor font: ${e.message}"
+                messageKind = 2
+                S.get(R.string.more_font_import_failed, e.message ?: "")
             }
         }
     }
@@ -391,11 +432,11 @@ private fun FontSection(s: AppSettings) {
                         Text(opt.name, style = MaterialTheme.typography.titleSmall)
                         if (opt.ligatures && opt.custom == null) {
                             Spacer(Modifier.width(8.dp))
-                            Tag("ligatur", Palette.Blue)
+                            Tag(stringResource(R.string.more_tag_ligatures), Palette.Blue)
                         }
                         if (opt.custom != null) {
                             Spacer(Modifier.width(8.dp))
-                            Tag("impor", Palette.TextDim)
+                            Tag(stringResource(R.string.more_tag_imported), Palette.TextDim)
                         }
                     }
                     Text(
@@ -408,15 +449,15 @@ private fun FontSection(s: AppSettings) {
                     )
                 }
                 if (opt.custom != null) {
-                    IconButton(onClick = { deleting = opt.custom }) { Icon(Icons.Rounded.Delete, "Hapus font", tint = Palette.TextDim) }
+                    IconButton(onClick = { deleting = opt.custom }) { Icon(Icons.Rounded.Delete, stringResource(R.string.more_delete_font), tint = Palette.TextDim) }
                 } else if (selected) {
                     Icon(Icons.Rounded.Check, null, tint = Palette.Accent)
                 }
             }
         }
         LabeledSwitch(
-            "Ligatur",
-            "Gabungkan -> != => dsb menjadi simbol (JetBrains Mono, Fira Code, Cascadia Code).",
+            stringResource(R.string.more_ligatures),
+            stringResource(R.string.more_ligatures_desc),
             s.ligatures,
         ) { v -> vault.updateSettings { it.copy(ligatures = v) } }
         TextButton(onClick = {
@@ -424,26 +465,26 @@ private fun FontSection(s: AppSettings) {
         }) {
             Icon(Icons.Rounded.FontDownload, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Impor font (.ttf / .otf)")
+            Text(stringResource(R.string.more_import_font))
         }
         message?.let {
             Text(
                 it, style = MaterialTheme.typography.bodySmall,
-                color = if (it.startsWith("Gagal")) Palette.Danger else if (it.contains("tidak monospace")) Palette.Warn else Palette.Accent,
+                color = when (messageKind) { 2 -> Palette.Danger; 1 -> Palette.Warn; else -> Palette.Accent },
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             )
         }
         Text(
-            "Font bawaan berlisensi SIL OFL / MIT. Gunakan font monospace (mis. Nerd Font) agar kolom rata.",
+            stringResource(R.string.more_font_license),
             style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
         )
     }
     deleting?.let { f ->
         ConfirmDialog(
-            title = "Hapus font?",
-            message = "\"${f.name}\" akan dihapus dari aplikasi.",
-            confirmText = "Hapus", danger = true,
+            title = stringResource(R.string.more_delete_font_title),
+            message = stringResource(R.string.more_delete_font_msg, f.name),
+            confirmText = stringResource(R.string.more_delete), danger = true,
             onConfirm = {
                 TerminalFonts.delete(context, f)
                 vault.updateSettings { st ->
@@ -473,13 +514,13 @@ private fun BatteryRow() {
     }
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("Tanpa batasan baterai", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.more_battery), style = MaterialTheme.typography.bodyLarge)
             Text(
-                if (ignoring) "Aktif — Android tidak membekukan koneksi." else "Belum aktif — Android bisa memutus sesi saat layar mati lama.",
+                stringResource(if (ignoring) R.string.more_battery_on else R.string.more_battery_off),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (ignoring) Palette.Accent else Palette.Warn,
             )
         }
-        if (!ignoring) TextButton(onClick = { BatteryOptimization.request(context) }) { Text("Izinkan") }
+        if (!ignoring) TextButton(onClick = { BatteryOptimization.request(context) }) { Text(stringResource(R.string.more_allow)) }
     }
 }

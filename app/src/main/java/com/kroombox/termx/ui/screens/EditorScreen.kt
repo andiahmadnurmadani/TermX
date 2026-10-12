@@ -1,5 +1,8 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -99,7 +102,7 @@ import java.util.EnumSet
 private object RemoteFiles {
     const val MAX_BYTES = 2L * 1024 * 1024
 
-    class PermissionDenied : Exception("Izin ditolak")
+    class PermissionDenied : Exception(S.get(R.string.editor_permission_denied))
 
     private fun denied(e: Exception) =
         e is SFTPException && (e.statusCode == Response.StatusCode.PERMISSION_DENIED)
@@ -120,7 +123,7 @@ private object RemoteFiles {
         val sftp = TermXApp.container.sessions.connectionFor(hostId).sftp()
         try {
             val size = sftp.stat(path).size
-            if (size > MAX_BYTES) throw java.io.IOException("File terlalu besar untuk diedit (> 2 MB). Unduh lewat SFTP.")
+            if (size > MAX_BYTES) throw java.io.IOException(S.get(R.string.editor_err_too_large))
             val rf = sftp.open(path, EnumSet.of(OpenMode.READ))
             val bytes = try { rf.RemoteFileInputStream(0).readBytes() } finally { rf.close() }
             return decode(bytes)
@@ -132,12 +135,12 @@ private object RemoteFiles {
 
     suspend fun readSudo(hostId: String, path: String): String {
         val r = TermXApp.container.sessions.execSudo(hostId, "cat -- ${Sudo.shQuote(path)}", timeoutSec = 30)
-        if (r.exitCode != null && r.exitCode != 0) throw java.io.IOException(r.stderr.ifBlank { "Gagal membaca dengan sudo" }.trim())
+        if (r.exitCode != null && r.exitCode != 0) throw java.io.IOException(r.stderr.ifBlank { S.get(R.string.editor_err_read_sudo) }.trim())
         return decode(r.stdout.toByteArray(Charsets.UTF_8))
     }
 
     private fun decode(bytes: ByteArray): String {
-        if (bytes.take(8000).any { it == 0.toByte() }) throw java.io.IOException("File biner — tidak bisa diedit sebagai teks.")
+        if (bytes.take(8000).any { it == 0.toByte() }) throw java.io.IOException(S.get(R.string.editor_err_binary))
         return String(bytes, Charsets.UTF_8)
     }
 
@@ -163,7 +166,7 @@ private object RemoteFiles {
         val b64 = java.util.Base64.getMimeEncoder(76, "\n".toByteArray()).encodeToString(text.toByteArray(Charsets.UTF_8))
         val script = "(base64 -d 2>/dev/null || base64 -D) > ${Sudo.shQuote(path)} <<'TERMX_EOF'\n$b64\nTERMX_EOF\n"
         val r = TermXApp.container.sessions.execSudo(hostId, script, timeoutSec = 60)
-        if (r.exitCode != null && r.exitCode != 0) throw java.io.IOException(r.stderr.ifBlank { "Gagal menyimpan dengan sudo" }.trim())
+        if (r.exitCode != null && r.exitCode != 0) throw java.io.IOException(r.stderr.ifBlank { S.get(R.string.editor_err_save_sudo) }.trim())
     }
 }
 
@@ -229,11 +232,11 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                 needSudoRead = false
             } catch (e: RemoteFiles.PermissionDenied) {
                 needSudoRead = true
-                error = "Izin baca ditolak. File ini mungkin milik root."
+                error = S.get(R.string.editor_read_denied)
             } catch (e: Exception) {
                 // File baru yang belum ada di server bukan error.
                 if (e is SFTPException && e.statusCode == Response.StatusCode.NO_SUCH_FILE) {
-                    original = ""; value = TextFieldValue(""); info = "File baru — akan dibuat saat disimpan."
+                    original = ""; value = TextFieldValue(""); info = S.get(R.string.editor_new_file_info)
                 } else error = e.message ?: e.javaClass.simpleName
             } finally {
                 loading = false
@@ -251,13 +254,13 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                 else withContext(Dispatchers.IO) { RemoteFiles.write(hostId, path, text) }
                 original = text
                 needSudoWrite = false
-                info = "Tersimpan${if (sudo) " (sudo)" else ""}"
+                info = S.get(if (sudo) R.string.editor_saved_sudo else R.string.editor_saved)
                 then?.invoke()
             } catch (e: RemoteFiles.PermissionDenied) {
                 needSudoWrite = true
-                error = "Izin tulis ditolak. Simpan dengan sudo?"
+                error = S.get(R.string.editor_write_denied)
             } catch (e: Exception) {
-                error = "Gagal menyimpan: ${e.message ?: e.javaClass.simpleName}"
+                error = S.get(R.string.editor_save_failed, e.message ?: e.javaClass.simpleName)
             } finally {
                 saving = false
             }
@@ -322,7 +325,7 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                 ?: t.lastIndexOf(query, ignoreCase = true)
         }
         if (idx >= 0) value = value.copy(selection = TextRange(idx, idx + query.length))
-        else info = "Tidak ditemukan"
+        else info = S.get(R.string.editor_not_found)
     }
 
     fun replaceOne() {
@@ -334,9 +337,9 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
     fun replaceAll() {
         if (query.isEmpty()) return
         val count = Regex(Regex.escape(query), RegexOption.IGNORE_CASE).findAll(value.text).count()
-        if (count == 0) { info = "Tidak ditemukan"; return }
+        if (count == 0) { info = S.get(R.string.editor_not_found); return }
         setText(TextFieldValue(value.text.replace(query, replacement, ignoreCase = true)))
-        info = "$count diganti"
+        info = S.get(R.string.editor_replaced_count, count)
     }
 
     fun exit() { if (dirty) confirmExit = true else nav.back() }
@@ -366,35 +369,35 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                         )
                     }
                 },
-                navigationIcon = { IconButton(onClick = { exit() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                navigationIcon = { IconButton(onClick = { exit() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.editor_back)) } },
                 actions = {
                     IconButton(onClick = { undo.removeLastOrNull()?.let { redo.add(value); value = it } }, enabled = undo.isNotEmpty()) {
-                        Icon(Icons.AutoMirrored.Rounded.Undo, "Undo")
+                        Icon(Icons.AutoMirrored.Rounded.Undo, stringResource(R.string.editor_undo))
                     }
                     IconButton(onClick = { redo.removeLastOrNull()?.let { undo.add(value); value = it } }, enabled = redo.isNotEmpty()) {
-                        Icon(Icons.AutoMirrored.Rounded.Redo, "Redo")
+                        Icon(Icons.AutoMirrored.Rounded.Redo, stringResource(R.string.editor_redo))
                     }
-                    IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Rounded.Search, "Cari", tint = if (searchOpen) Palette.Accent else Palette.Text) }
+                    IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Rounded.Search, stringResource(R.string.editor_search), tint = if (searchOpen) Palette.Accent else Palette.Text) }
                     IconButton(onClick = { save(viaSudo || needSudoWrite) }, enabled = !saving && !loading && (dirty || isNew)) {
                         if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Rounded.Save, "Simpan", tint = if (dirty) Palette.Accent else Palette.TextDim)
+                        else Icon(Icons.Rounded.Save, stringResource(R.string.editor_save), tint = if (dirty) Palette.Accent else Palette.TextDim)
                     }
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.editor_menu)) }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
-                                text = { Text(if (wrap) "Matikan wrap (nomor baris)" else "Wrap baris panjang") },
+                                text = { Text(stringResource(if (wrap) R.string.editor_wrap_off else R.string.editor_wrap_on)) },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.WrapText, null) },
                                 onClick = { wrap = !wrap; menu = false },
                             )
-                            DropdownMenuItem(text = { Text("Perbesar huruf") }, leadingIcon = { Icon(Icons.Rounded.ZoomIn, null) },
+                            DropdownMenuItem(text = { Text(stringResource(R.string.editor_font_bigger)) }, leadingIcon = { Icon(Icons.Rounded.ZoomIn, null) },
                                 onClick = { fontSp = (fontSp + 1).coerceAtMost(28f) })
-                            DropdownMenuItem(text = { Text("Perkecil huruf") }, leadingIcon = { Icon(Icons.Rounded.ZoomOut, null) },
+                            DropdownMenuItem(text = { Text(stringResource(R.string.editor_font_smaller)) }, leadingIcon = { Icon(Icons.Rounded.ZoomOut, null) },
                                 onClick = { fontSp = (fontSp - 1).coerceAtLeast(8f) })
                             HorizontalDivider()
-                            DropdownMenuItem(text = { Text("Simpan dengan sudo") }, leadingIcon = { Icon(Icons.Rounded.Save, null) },
+                            DropdownMenuItem(text = { Text(stringResource(R.string.editor_save_sudo)) }, leadingIcon = { Icon(Icons.Rounded.Save, null) },
                                 onClick = { menu = false; save(true) })
-                            DropdownMenuItem(text = { Text("Muat ulang dari server") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
+                            DropdownMenuItem(text = { Text(stringResource(R.string.editor_reload)) }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
                                 onClick = { menu = false; load(viaSudo) })
                         }
                     }
@@ -411,8 +414,8 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(msg, style = MaterialTheme.typography.bodySmall, color = Palette.Danger, modifier = Modifier.weight(1f))
-                    if (needSudoRead) TextButton(onClick = { load(true) }) { Text("Buka dengan sudo") }
-                    if (needSudoWrite) TextButton(onClick = { save(true) }) { Text("Simpan dengan sudo") }
+                    if (needSudoRead) TextButton(onClick = { load(true) }) { Text(stringResource(R.string.editor_open_sudo)) }
+                    if (needSudoWrite) TextButton(onClick = { save(true) }) { Text(stringResource(R.string.editor_save_sudo)) }
                 }
             }
             info?.let {
@@ -475,15 +478,15 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
     if (confirmExit) {
         AlertDialog(
             onDismissRequest = { confirmExit = false },
-            title = { Text("Simpan perubahan?") },
-            text = { Text("\"$name\" punya perubahan yang belum disimpan.") },
+            title = { Text(stringResource(R.string.editor_save_changes_title)) },
+            text = { Text(stringResource(R.string.editor_unsaved_message, name)) },
             confirmButton = {
-                Button(onClick = { confirmExit = false; save(viaSudo || needSudoWrite) { nav.back() } }) { Text("Simpan & keluar") }
+                Button(onClick = { confirmExit = false; save(viaSudo || needSudoWrite) { nav.back() } }) { Text(stringResource(R.string.editor_save_and_exit)) }
             },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { confirmExit = false; nav.back() }) { Text("Buang", color = Palette.Danger) }
-                    TextButton(onClick = { confirmExit = false }) { Text("Batal") }
+                    TextButton(onClick = { confirmExit = false; nav.back() }) { Text(stringResource(R.string.editor_discard), color = Palette.Danger) }
+                    TextButton(onClick = { confirmExit = false }) { Text(stringResource(R.string.editor_cancel)) }
                 }
             },
         )
@@ -506,21 +509,21 @@ private fun SearchPanel(
     Column(Modifier.fillMaxWidth().background(Palette.Surface).padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextField(
-                query, onQuery, placeholder = { Text("Cari") }, singleLine = true, colors = colors,
+                query, onQuery, placeholder = { Text(stringResource(R.string.editor_search)) }, singleLine = true, colors = colors,
                 shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f),
                 suffix = { if (query.isNotEmpty()) Text("$matches", color = Palette.TextDim) },
             )
-            IconButton(onClick = onPrev) { Icon(Icons.Rounded.KeyboardArrowUp, "Sebelumnya") }
-            IconButton(onClick = onNext) { Icon(Icons.Rounded.KeyboardArrowDown, "Berikutnya") }
-            IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Tutup cari") }
+            IconButton(onClick = onPrev) { Icon(Icons.Rounded.KeyboardArrowUp, stringResource(R.string.editor_previous)) }
+            IconButton(onClick = onNext) { Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.editor_next)) }
+            IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.editor_close_search)) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextField(
-                replacement, onReplacement, placeholder = { Text("Ganti dengan") }, singleLine = true, colors = colors,
+                replacement, onReplacement, placeholder = { Text(stringResource(R.string.editor_replace_with)) }, singleLine = true, colors = colors,
                 shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onReplace) { Text("Ganti") }
-            TextButton(onClick = onReplaceAll) { Text("Semua") }
+            TextButton(onClick = onReplace) { Text(stringResource(R.string.editor_replace)) }
+            TextButton(onClick = onReplaceAll) { Text(stringResource(R.string.editor_replace_all)) }
         }
     }
 }

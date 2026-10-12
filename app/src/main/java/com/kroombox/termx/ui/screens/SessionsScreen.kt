@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,16 +64,16 @@ fun SessionsScreen(nav: Nav, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Sesi", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
+            Text(stringResource(R.string.sess_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
             Text(
-                if (total == 0) "Tidak ada sesi yang tersambung." else "$total sesi tersambung. Ketuk untuk masuk.",
+                if (total == 0) stringResource(R.string.sess_none_connected) else stringResource(R.string.sess_count_connected, total),
                 style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim,
             )
         }
         if (total == 0) {
             item {
                 Box(Modifier.height(380.dp)) {
-                    EmptyState(Icons.Rounded.Terminal, "Belum ada sesi", "Ketuk host di tab Host untuk membuka terminal.")
+                    EmptyState(Icons.Rounded.Terminal, stringResource(R.string.sess_empty_title), stringResource(R.string.sess_empty_message))
                 }
             }
         }
@@ -111,7 +113,7 @@ private fun SessionCard(s: TerminalSession, nav: Nav) {
                 )
             }
             IconButton(onClick = { TermXApp.container.sessions.closeTerminal(s.id) }) {
-                Icon(Icons.Rounded.Close, "Tutup sesi", tint = Palette.TextDim)
+                Icon(Icons.Rounded.Close, stringResource(R.string.sess_close), tint = Palette.TextDim)
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -153,7 +155,7 @@ private fun SftpCard(s: com.kroombox.termx.ssh.SessionManager.SftpSession, nav: 
                 )
             }
             IconButton(onClick = { TermXApp.container.sessions.closeSftp(s.id) }) {
-                Icon(Icons.Rounded.Close, "Tutup sesi SFTP", tint = Palette.TextDim)
+                Icon(Icons.Rounded.Close, stringResource(R.string.sess_close_sftp), tint = Palette.TextDim)
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -162,7 +164,7 @@ private fun SftpCard(s: com.kroombox.termx.ssh.SessionManager.SftpSession, nav: 
                 .background(Palette.Bg).padding(horizontal = 10.dp, vertical = 8.dp),
         ) {
             if (s.preview.isEmpty()) {
-                Text("Membuka folder…", color = Palette.TextDim, fontSize = 11.sp)
+                Text(stringResource(R.string.sess_opening_folder), color = Palette.TextDim, fontSize = 11.sp)
             }
             s.preview.forEach { l ->
                 Text(l, color = Palette.Text.copy(alpha = 0.85f), fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

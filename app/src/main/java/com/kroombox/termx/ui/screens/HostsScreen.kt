@@ -1,5 +1,8 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import com.kroombox.termx.os.OsCatalog
 import com.kroombox.termx.ui.components.composeColor
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -111,11 +114,11 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
-                Text("Host", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 12.dp, bottom = 12.dp))
+                Text(stringResource(R.string.hosts_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 12.dp, bottom = 12.dp))
                 TextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Cari host, alamat, tag…") },
+                    placeholder = { Text(stringResource(R.string.hosts_search)) },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
@@ -135,10 +138,10 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
                     Box(Modifier.height(420.dp)) {
                         EmptyState(
                             Icons.Rounded.Dns,
-                            "Belum ada host",
-                            "Tambahkan server pertama Anda untuk mulai SSH, SFTP, dan monitoring.",
+                            stringResource(R.string.hosts_empty_title),
+                            stringResource(R.string.hosts_empty_message),
                         ) {
-                            TextButton(onClick = { nav.editHost() }) { Text("Tambah host") }
+                            TextButton(onClick = { nav.editHost() }) { Text(stringResource(R.string.hosts_add_host)) }
                         }
                     }
                 }
@@ -157,7 +160,7 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
                                     Spacer(Modifier.width(8.dp))
                                 }
                                 Text(
-                                    (g?.name ?: "Tanpa grup").uppercase(),
+                                    (g?.name ?: stringResource(R.string.hosts_no_group)).uppercase(),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = g?.let { accent(it.colorIndex) } ?: Palette.TextDim,
                                     letterSpacing = 1.2.sp,
@@ -177,7 +180,7 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
         ExtendedFloatingActionButton(
             onClick = { nav.editHost() },
             icon = { Icon(Icons.Rounded.Add, null) },
-            text = { Text("Host baru") },
+            text = { Text(stringResource(R.string.hosts_new_host)) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -198,11 +201,11 @@ private fun GroupDialog(initial: HostGroup?, suggestedColor: Int, onDismiss: () 
     var confirmDelete by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "Grup baru" else "Edit grup") },
+        title = { Text(if (initial == null) stringResource(R.string.hosts_group_new) else stringResource(R.string.hosts_group_edit)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nama grup") }, singleLine = true)
-                Text("Warna", style = MaterialTheme.typography.labelLarge)
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.hosts_group_name)) }, singleLine = true)
+                Text(stringResource(R.string.hosts_color), style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     AccentColors.indices.forEach { i ->
                         val c = accent(i)
@@ -217,7 +220,7 @@ private fun GroupDialog(initial: HostGroup?, suggestedColor: Int, onDismiss: () 
                     TextButton(onClick = { confirmDelete = true }) {
                         Icon(Icons.Rounded.Delete, null, tint = Palette.Danger, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Hapus grup", color = Palette.Danger)
+                        Text(stringResource(R.string.hosts_group_delete), color = Palette.Danger)
                     }
                 }
             }
@@ -226,15 +229,15 @@ private fun GroupDialog(initial: HostGroup?, suggestedColor: Int, onDismiss: () 
             TextButton(enabled = name.isNotBlank(), onClick = {
                 vault.saveGroup((initial ?: HostGroup(name = "")).copy(name = name.trim(), colorIndex = color))
                 onDismiss()
-            }) { Text("Simpan") }
+            }) { Text(stringResource(R.string.hosts_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.hosts_cancel)) } },
     )
     if (confirmDelete && initial != null) {
         ConfirmDialog(
-            title = "Hapus grup?",
-            message = "Grup \"${initial.name}\" dihapus. Host di dalamnya tidak ikut terhapus.",
-            confirmText = "Hapus", danger = true,
+            title = stringResource(R.string.hosts_group_delete_title),
+            message = stringResource(R.string.hosts_group_delete_message, initial.name),
+            confirmText = stringResource(R.string.hosts_delete), danger = true,
             onConfirm = { vault.deleteGroup(initial.id); onDeleted(); onDismiss() },
             onDismiss = { confirmDelete = false },
         )
@@ -245,7 +248,7 @@ private fun GroupDialog(initial: HostGroup?, suggestedColor: Int, onDismiss: () 
 private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (String?) -> Unit, onAdd: () -> Unit) {
     var editing by remember { mutableStateOf<HostGroup?>(null) }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text("Semua") })
+        FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text(stringResource(R.string.hosts_filter_all)) })
         groups.forEach { g ->
             FilterChip(
                 selected = selected == g.id,
@@ -253,7 +256,7 @@ private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (St
                 label = { Text(g.name) },
                 leadingIcon = { StatusDot(accent(g.colorIndex)) },
                 trailingIcon = if (selected == g.id) {
-                    { Icon(Icons.Rounded.Edit, "Edit grup", Modifier.size(16.dp).clip(RoundedCornerShape(8.dp)).clickable { editing = g }) }
+                    { Icon(Icons.Rounded.Edit, stringResource(R.string.hosts_group_edit), Modifier.size(16.dp).clip(RoundedCornerShape(8.dp)).clickable { editing = g }) }
                 } else null,
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = accent(g.colorIndex).copy(alpha = 0.22f),
@@ -261,7 +264,7 @@ private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (St
                 ),
             )
         }
-        FilterChip(selected = false, onClick = onAdd, label = { Text("Grup") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
+        FilterChip(selected = false, onClick = onAdd, label = { Text(stringResource(R.string.hosts_group_chip)) }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
     }
     editing?.let { g ->
         GroupDialog(initial = g, suggestedColor = g.colorIndex, onDismiss = { editing = null }, onDeleted = { onSelect(null) })
@@ -297,13 +300,13 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, groupColor: Color
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     OsCatalog.byId(host.osId)?.let { os -> Tag(os.title, os.composeColor()) }
                     if (host.persistentSession) Tag("tmux · ${host.tmuxSessionName}", Palette.Accent)
-                    if (host.jumpHostId != null) Tag("via jump", Palette.Blue)
+                    if (host.jumpHostId != null) Tag(stringResource(R.string.hosts_via_jump), Palette.Blue)
                     host.tags.take(2).forEach { Tag(it, Palette.TextDim) }
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.hosts_menu)) }
                     HostMenu(host, menu, onDismiss = { menu = false }, nav = nav, onDelete = { confirmDelete = true })
                 }
                 Text(timeAgo(host.lastConnectedAt), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
@@ -312,9 +315,9 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, groupColor: Color
     }
     if (confirmDelete) {
         ConfirmDialog(
-            title = "Hapus host?",
-            message = "\"${host.label}\" beserta aturan port forward-nya akan dihapus.",
-            confirmText = "Hapus", danger = true,
+            title = stringResource(R.string.hosts_delete_title),
+            message = stringResource(R.string.hosts_delete_message, host.label),
+            confirmText = stringResource(R.string.hosts_delete), danger = true,
             onConfirm = {
                 TermXApp.container.vault.deleteHost(host.id)
                 TermXApp.container.sessions.history.deleteForHost(host.id)
@@ -338,30 +341,30 @@ fun Tag(text: String, color: Color) {
 @Composable
 private fun HostMenu(host: Host, expanded: Boolean, onDismiss: () -> Unit, nav: Nav, onDelete: () -> Unit) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        DropdownMenuItem(text = { Text("Terminal") }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
+        DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_terminal)) }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
             onClick = { onDismiss(); nav.connect(host.id, plain = true) })
         DropdownMenuItem(
-            text = { Text("Terminal tmux (${host.tmuxSessionName})") },
+            text = { Text(stringResource(R.string.hosts_menu_terminal_tmux, host.tmuxSessionName)) },
             leadingIcon = { Icon(Icons.Rounded.Layers, null) },
             onClick = { onDismiss(); nav.connect(host.id, tmux = host.tmuxSessionName) },
         )
         DropdownMenuItem(text = { Text("SFTP") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) },
             onClick = { onDismiss(); nav.sftp(host.id) })
-        DropdownMenuItem(text = { Text("Monitor server") }, leadingIcon = { Icon(Icons.Rounded.Speed, null) },
+        DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_monitor)) }, leadingIcon = { Icon(Icons.Rounded.Speed, null) },
             onClick = { onDismiss(); nav.monitor(host.id) })
-        DropdownMenuItem(text = { Text("Port forwarding") }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) },
+        DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_forwarding)) }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) },
             onClick = { onDismiss(); nav.forwards(host.id) })
         HorizontalDivider()
-        DropdownMenuItem(text = { Text("Edit") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+        DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_edit)) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) },
             onClick = { onDismiss(); nav.editHost(host.id) })
-        DropdownMenuItem(text = { Text("Duplikat") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) },
+        DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_duplicate)) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) },
             onClick = {
                 onDismiss()
                 TermXApp.container.vault.saveHost(
-                    host.copy(id = com.kroombox.termx.data.newId(), label = host.label + " (salinan)", lastConnectedAt = 0),
+                    host.copy(id = com.kroombox.termx.data.newId(), label = S.get(R.string.hosts_copy_label, host.label), lastConnectedAt = 0),
                 )
             })
-        DropdownMenuItem(text = { Text("Hapus", color = Palette.Danger) }, leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Palette.Danger) },
+        DropdownMenuItem(text = { Text(stringResource(R.string.hosts_delete), color = Palette.Danger) }, leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Palette.Danger) },
             onClick = { onDismiss(); onDelete() })
     }
 }

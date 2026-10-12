@@ -1,5 +1,6 @@
 package com.kroombox.termx.service
 
+import com.kroombox.termx.i18n.S
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -146,20 +147,20 @@ class SessionService : Service() {
         val reconnecting = live.count { it.state.value == SessionState.RECONNECTING || it.state.value == SessionState.CONNECTING }
         val fwd = mgr.forwards.activeCount
         val parts = mutableListOf<String>()
-        if (connected > 0) parts += "$connected sesi aktif"
-        if (reconnecting > 0) parts += "$reconnecting menyambung ulang"
-        if (fwd > 0) parts += "$fwd port forward"
+        if (connected > 0) parts += S.get(R.string.svc_n_active, connected)
+        if (reconnecting > 0) parts += S.get(R.string.svc_n_reconnecting, reconnecting)
+        if (fwd > 0) parts += S.get(R.string.svc_n_forwards, fwd)
         val sftpCount = mgr.sftpSessions.value.size
         if (sftpCount > 0) parts += "$sftpCount SFTP"
-        val title = parts.joinToString(" · ").ifEmpty { "Menjaga koneksi" }
+        val title = parts.joinToString(" · ").ifEmpty { S.get(R.string.svc_keeping_connection) }
         val hosts = live.map { it.host.label }.distinct().joinToString(", ")
 
         val style = NotificationCompat.InboxStyle().setBigContentTitle(title)
         live.take(6).forEach { s ->
             val st = when (s.state.value) {
-                SessionState.CONNECTED -> "tersambung"
-                SessionState.RECONNECTING -> "menyambung ulang…"
-                SessionState.CONNECTING -> "menyambung…"
+                SessionState.CONNECTED -> S.get(R.string.svc_state_connected)
+                SessionState.RECONNECTING -> S.get(R.string.svc_state_reconnecting)
+                SessionState.CONNECTING -> S.get(R.string.svc_state_connecting)
                 else -> s.state.value.name.lowercase()
             }
             style.addLine("● ${s.host.label}${s.tmuxName?.let { " · tmux:$it" } ?: ""} — $st")
@@ -169,7 +170,7 @@ class SessionService : Service() {
             style.addLine("● $label — SFTP ${f.path.ifEmpty { "~" }}")
         }
         style.setSummaryText(
-            (if (live.size > 6) "+${live.size - 6} lainnya · " else "") + "Tetap aktif sampai Anda memutuskan",
+            (if (live.size > 6) S.get(R.string.svc_n_more, live.size - 6) else "") + S.get(R.string.svc_stays_active),
         )
 
         val open = PendingIntent.getActivity(
@@ -193,7 +194,7 @@ class SessionService : Service() {
             .setSmallIcon(R.drawable.ic_stat_terminal)
             .setColor(0xFF3DDC97.toInt())
             .setContentTitle(title)
-            .setContentText(hosts.ifEmpty { "Menjaga koneksi SSH" })
+            .setContentText(hosts.ifEmpty { S.get(R.string.svc_keeping_ssh) })
             .setStyle(style)
             .setWhen(startedAt)
             .setUsesChronometer(true)
@@ -206,8 +207,8 @@ class SessionService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open)
             .setDeleteIntent(repost)
-            .addAction(0, "Buka", open)
-            .addAction(0, "Putuskan semua…", disconnect)
+            .addAction(0, S.get(R.string.svc_action_open), open)
+            .addAction(0, S.get(R.string.svc_action_disconnect_all), disconnect)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
@@ -243,14 +244,14 @@ class SessionService : Service() {
 
         fun ensureChannel(ctx: Context) {
             val nm = ctx.getSystemService(NotificationManager::class.java)
-            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-                nm.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "Sesi SSH aktif", NotificationManager.IMPORTANCE_LOW).apply {
-                        description = "Notifikasi tetap selama sesi SSH dan port forward berjalan, sampai Anda memutuskannya"
-                        setShowBadge(false)
-                    },
-                )
-            }
+            // Dibuat ulang setiap start: membuat channel yang sudah ada hanya memperbarui nama/deskripsinya,
+            // jadi nama channel mengikuti bahasa yang dipilih.
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, S.get(R.string.svc_channel_name), NotificationManager.IMPORTANCE_LOW).apply {
+                    description = S.get(R.string.svc_channel_desc)
+                    setShowBadge(false)
+                },
+            )
         }
 
         /**

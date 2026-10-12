@@ -1,5 +1,7 @@
 package com.kroombox.termx.data
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -50,7 +52,7 @@ object SecretBox {
     }
 
     fun decrypt(enc: String): String {
-        require(enc.startsWith(PREFIX)) { "Format rahasia tidak dikenal" }
+        require(enc.startsWith(PREFIX)) { S.get(R.string.data_unknown_secret_format) }
         val all = Base64.decode(enc.removePrefix(PREFIX), Base64.NO_WRAP)
         val iv = all.copyOfRange(0, 12)
         val ct = all.copyOfRange(12, all.size)

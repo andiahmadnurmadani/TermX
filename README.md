@@ -1,120 +1,120 @@
-# TermX — klien SSH Android
+# TermX — SSH client for Android
 
 <p align="center"><img src="docs/logo.png" width="128" alt="TermX"></p>
 
 <p align="center">
-  <a href="../../releases/latest">Unduh APK terbaru</a> ·
+  <a href="../../releases/latest">Download the latest APK</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="LICENSE">Lisensi MIT</a>
+  <a href="LICENSE">MIT License</a> ·
+  <a href="README.id.md">Bahasa Indonesia</a>
 </p>
 
-Klien SSH Android bergaya modern (terinspirasi alur kerja Termius) dengan Kotlin + Jetpack Compose.
-Ketuk host untuk membuka **terminal biasa**; pilih **Terminal tmux** (menu host, tab Sesi, atau menu
-terminal) untuk **sesi persisten**: shell dijalankan di dalam `tmux` di server. Program yang
-Anda jalankan (Claude Code, build panjang, `tail -f`, dsb.) tetap hidup di server walau HP terputus,
-layar mati, atau aplikasi ditutup. Saat tersambung lagi, aplikasi otomatis masuk ke sesi yang sama.
+A modern SSH client for Android (inspired by the Termius workflow), written in Kotlin + Jetpack Compose.
+Tap a host to open a **terminal**; choose **tmux terminal** (host menu, Sessions, or the terminal's **+**) for a
+**persistent session**: the shell runs inside `tmux` on the server, so whatever you start (Claude Code, long builds,
+`tail -f`, …) keeps running when the phone disconnects, the screen turns off, or the app is closed. When you
+reconnect, TermX attaches to the same session.
 
-**Sesi tidak pernah putus sendiri.** Selama tab belum ditutup, TermX terus menyambung ulang (tanpa
-batas, termasuk saat jaringan berganti Wi-Fi ↔ data), memulihkan tab setelah Android mematikan
-proses aplikasi, dan menampilkan notifikasi tetap di atas sampai Anda menekan **Putuskan semua** atau
-menutup tab.
+**Sessions never end on their own.** Until you close a session, TermX keeps reconnecting (including across
+Wi-Fi ↔ mobile data switches; healthy connections, e.g. over Tailscale, are kept untouched), restores sessions
+after Android kills the app, and shows a persistent notification until you disconnect.
 
-## Fitur
+The app is available in **English** (default) and **Bahasa Indonesia** — switch in **More → Settings → Language**.
 
-| Area | Isi |
+## Features
+
+| Area | Details |
 |---|---|
-| **Host** | Daftar host dengan grup, tag, warna, pencarian; duplikat; jump host (bastion); keep-alive; perintah awal |
-| **Ikon host** | Logo OS otomatis (Ubuntu, Debian, Arch, Fedora, Rocky, Alpine, Raspberry Pi, Proxmox, macOS, Windows, dll.) dideteksi saat konek; bisa diganti logo OS lain, ikon bawaan, atau emoji |
-| **Sudo** | Password sudo per host (atau pakai password login); snippet "jalankan dengan sudo" mengetik password otomatis saat prompt sudo muncul; menu terminal "Ketik password sudo" |
-| **Font** | JetBrains Mono (default), Fira Code, Cascadia Code, Hack, monospace sistem, plus **impor font sendiri (.ttf/.otf, mis. Nerd Font)**; pratinjau di Pengaturan; ligatur bisa dinyalakan; ganti cepat dari menu terminal |
-| **Terminal** | Emulator xterm-256color + truecolor buatan sendiri (alt screen, scroll region, mouse SGR, bracketed paste, OSC title/clipboard), multi-tab, pinch-zoom, seleksi & salin, bar tombol tambahan (CTRL/ALT sticky, panah, F1–F12, dapat diatur), 5 tema |
-| **Sesi persisten** | Attach otomatis ke `tmux new -A`; mouse tmux untuk menggulir riwayat dengan geser; auto-reconnect dengan backoff + reaksi saat jaringan berganti; daftar/attach/akhiri sesi tmux di server; perintah awal hanya dijalankan saat sesi baru dibuat |
-| **Latar belakang** | Foreground service (sticky) + wake/wifi lock; notifikasi tetap (muncul lagi bila diusap) berisi daftar sesi, lama aktif, tombol "Putuskan semua"; tab dipulihkan setelah proses dimatikan; permintaan pengecualian optimasi baterai |
-| **Keychain** | Buat kunci Ed25519 / RSA, impor OpenSSH / PEM / PuTTY (dengan passphrase), salin/bagikan public key, **pasang ke `authorized_keys` server dengan satu tap** |
-| **Keamanan** | Password & kunci privat dienkripsi AES-256-GCM dengan Android Keystore; verifikasi host key (TOFU, SHA256) dengan peringatan bila berubah; daftar known hosts |
-| **SFTP** | Jelajah, unggah/unduh (Storage Access Framework) dengan progres, buat folder, ganti nama, hapus rekursif, lihat/edit file teks kecil, file tersembunyi |
-| **Port forwarding** | Lokal (-L), remote (-R), dinamis/SOCKS5 (-D); mulai otomatis |
-| **Snippet** | Kelola daftar perintah (ikon pilihan sendiri, opsi sudo) di tab Snippet; jalankan dari dalam terminal lewat ⚡ |
-| **Monitor** | CPU, RAM, swap, load, disk, jaringan, proses teratas, daftar container Docker; mode **sudo** untuk server yang butuh root (mis. Docker) — read-only, refresh 3 detik |
-| **Cadangan** | Ekspor/impor konfigurasi (tanpa rahasia) |
+| **Hosts** | Groups (with custom colors), tags, search, duplicate, jump host (bastion), keep-alive, startup command |
+| **Host icons** | OS logo detected automatically on first connect (Ubuntu, Debian, Arch, Fedora, Rocky, Alpine, Raspberry Pi, Proxmox, macOS, Windows, …); can be replaced by another OS logo, a built-in icon, or an emoji |
+| **Terminal** | Own xterm-256color + truecolor emulator (alt screen, scroll regions, SGR mouse, bracketed paste, OSC title/clipboard), Termius-style controls (back, session pill with close, **+** new session, keyboard toggle), extra keys (`esc` `tab` `shift+tab` `ctrl` `alt`, arrows, F1–F12, customizable), pinch-zoom, selection, 5 themes, custom fonts (.ttf/.otf, ligatures) |
+| **Sessions** | Session list with live terminal previews; switch, close, or open new sessions from inside the terminal; SFTP sessions too; screen history saved per session; ASCII banner on connect |
+| **Persistent sessions** | `tmux` attach (50,000-line history, mouse scrolling), unlimited auto-reconnect, list/attach/kill tmux sessions on the server |
+| **Background** | Sticky foreground service + wake/Wi-Fi lock, non-dismissable notification with active sessions, restore after process death / reboot / update, battery-optimization exemption prompt |
+| **Autocomplete** | Command suggestions from the host's history, snippets, and common commands; commands that are not echoed (e.g. passwords) are never stored |
+| **Sudo** | Per-host sudo password (or the login password); after **you** run `sudo`, the `[sudo] password for <user>` prompt is filled automatically; other prompts only show a fill button |
+| **Snippets** | Manage commands with custom icons and a sudo option; run them from the terminal (⚡) |
+| **SFTP & editor** | Browse, upload/download, rename, delete; full-screen **text editor** with line numbers, undo/redo, find & replace, auto-indent, symbol bar; open/save root-owned files with sudo |
+| **Keychain** | Generate Ed25519 / RSA keys, import OpenSSH / PEM / PuTTY, install to `authorized_keys` in one tap, and see which servers each key is installed on (check / remove) |
+| **Security** | Passwords and private keys encrypted with AES-256-GCM via Android Keystore; host key verification (TOFU, SHA-256) with change warnings |
+| **Port forwarding** | Local (-L), remote (-R), dynamic/SOCKS5 (-D); auto-start |
+| **Monitor** | CPU, RAM, swap, load, disks, network, top processes, Docker containers; **sudo** mode for servers that require root |
+| **Backup** | Export/import configuration (without secrets) |
 
-## Versi & rilis
+## Install
 
-- Versi mengikuti [SemVer](https://semver.org/lang/id/) dan dicatat di [`CHANGELOG.md`](CHANGELOG.md).
-- **Rilis resmi**: tambahkan entri di CHANGELOG, naikkan `termx.versionName`/`termx.versionCode` di
-  `gradle.properties`, lalu buat tag:
+Download `TermX-vX.Y.Z.apk` from [Releases](../../releases/latest) and install it on Android 8.0+ (allow installs from
+unknown sources). Newer releases install over older ones without losing data. Verify the download with the
+`.sha256` file attached to each release.
+
+## Versions & releases
+
+- Versions follow [SemVer](https://semver.org/) and are recorded in [`CHANGELOG.md`](CHANGELOG.md).
+- **Release**: add a CHANGELOG entry, bump `termx.versionName` / `termx.versionCode` in `gradle.properties`, then tag:
   ```sh
-  git tag v0.3.0 && git push origin v0.3.0
+  git tag v0.8.0 && git push origin v0.8.0
   ```
-  Workflow `release.yml` membangun APK rilis bertanda tangan (kunci di secret GitHub
-  `TERMX_KEYSTORE_B64` / `TERMX_KEYSTORE_PASSWORD`) dan membuat GitHub Release `TermX vX.Y.Z`
-  berisi `TermX-vX.Y.Z.apk`, checksum, dan catatan dari CHANGELOG. `versionCode = X*10000 + Y*100 + Z`.
-- **Build pengembangan**: setiap push ke `main` memperbarui pre-release `latest-debug` (aplikasi terpisah,
-  id `com.kroombox.termx.debug`).
+  `release.yml` builds a signed release APK (key stored in the `TERMX_KEYSTORE_B64` / `TERMX_KEYSTORE_PASSWORD`
+  repository secrets) and publishes GitHub Release `TermX vX.Y.Z` with the APK, a checksum, and notes from the
+  CHANGELOG. `versionCode = X*10000 + Y*100 + Z`.
+- **Development builds**: every push to `main` updates the `latest-debug` pre-release (separate app id
+  `com.kroombox.termx.debug`).
 
-## Membangun APK
+## Building
 
-### Opsi A — GitHub Actions (tanpa install apa pun)
-1. Push folder ini ke repo GitHub (privat).
-2. Workflow `.github/workflows/android.yml` otomatis menjalankan unit test dan `assembleDebug`.
-3. Unduh APK dari **Releases → `latest-debug` → `termx-debug.apk`** (atau Actions → Artifacts → `termx-debug-apk`).
-   Build debug CI ditandatangani kunci debug yang disimpan sebagai secret repo, jadi versi baru bisa dipasang menimpa yang lama.
-
-### Opsi B — Android Studio
-1. Buka folder proyek di Android Studio (Ladybug atau lebih baru), tunggu Gradle sync.
-2. **Build → Build App Bundle(s)/APK(s) → Build APK(s)**, atau `./gradlew assembleDebug`.
-3. APK ada di `app/build/outputs/apk/debug/`.
-
-Kebutuhan: JDK 17, Android SDK 34. Versi: AGP 8.5.2, Kotlin 2.0.21, Gradle 8.9, Compose BOM 2024.09.00,
-sshj 0.39.0, BouncyCastle 1.78.1. minSdk 26 (Android 8.0).
-
-## Cara kerja sesi persisten
-
-Saat membuka terminal ke host dengan "Jalankan di tmux" aktif, aplikasi menjalankan (via `sh -c`):
+Requirements: JDK 17, Android SDK 34. Versions: AGP 8.5.2, Kotlin 2.0.21, Gradle 8.9, Compose BOM 2024.09.00,
+sshj 0.39.0, Bouncy Castle 1.78.1. minSdk 26 (Android 8.0).
 
 ```sh
-tmux has-session -t NAMA || tmux new-session -d -s NAMA [&& kirim perintah awal]
-exec tmux attach-session -t NAMA \; set-option -q mouse on
+./gradlew testDebugUnitTest assembleDebug   # APK in app/build/outputs/apk/debug/
 ```
 
-Bila `tmux` tidak ada di server, aplikasi memberi tahu lalu jatuh kembali ke shell biasa
-(pasang dengan `sudo apt install tmux`). Contoh pemakaian untuk Claude Code: buat host dengan
-nama sesi tmux `claude` dan perintah awal `cd /srv/app && claude`. Tutup aplikasi kapan saja;
-Claude Code tetap bekerja di server, dan saat Anda membuka host itu lagi, layarnya muncul kembali.
+Or open the project in Android Studio (Ladybug or newer) and use **Build → Build APK(s)**.
 
-Menutup tab **tidak** menghentikan sesi tmux. Gunakan menu ⋮ → "Tutup & akhiri sesi tmux",
-atau tab **Sesi → Sesi tmux di server** untuk mengakhirinya.
+## How persistent sessions work
 
-## Struktur kode
+When you open a tmux terminal, TermX runs (via `sh -c`):
+
+```sh
+tmux has-session -t NAME || { tmux start-server \; set-option -gq history-limit 50000; tmux new-session -d -s NAME; }
+exec tmux attach-session -t NAME \; set-option -q mouse on
+```
+
+If `tmux` is not installed, TermX says so and falls back to a regular shell (`sudo apt install tmux`).
+Closing a tab does **not** stop the tmux session; use the menu → "Close & end tmux session" to end it.
+
+## Project layout
 
 ```
 app/src/main/java/com/kroombox/termx/
-├── TermXApp.kt, MainActivity.kt   # setup BouncyCastle, container, activity
-├── data/       # model (kotlinx.serialization), Vault (JSON atomik), SecretBox (Keystore), KeyManager, format kunci OpenSSH
-├── os/         # OsCatalog: logo OS (Simple Icons, CC0) + deteksi OS dari /etc/os-release
-├── ssh/        # SshConnection (sshj, sudo), SessionManager, TerminalSession (reconnect tanpa batas, sudo autofill), Sudo, Tmux, PortForwards (+SOCKS5), ServerStats, Prompts
-├── terminal/   # TerminalEmulator (VT/xterm), TerminalView (Canvas + IME), KeyEncoder, TerminalTheme
-├── service/    # SessionService (foreground service sticky + notifikasi tetap), BatteryOptimization
-└── ui/         # Compose: AppNav, theme, components, screens/*
+├── TermXApp.kt, MainActivity.kt   # BouncyCastle setup, container, activity
+├── data/       # models (kotlinx.serialization), Vault (atomic JSON), SecretBox (Keystore), KeyManager, OpenSSH key format
+├── i18n/       # Lang (English / Bahasa Indonesia), S (strings outside Compose)
+├── os/         # OsCatalog: OS logos (Simple Icons, CC0) + OS detection
+├── ssh/        # SshConnection, SessionManager, TerminalSession, Sudo, Autocomplete, Tmux, PortForwards, ServerStats
+├── terminal/   # TerminalEmulator (VT/xterm), TerminalView (Canvas + IME), KeyEncoder, themes, fonts, banner
+├── service/    # SessionService (sticky foreground service), battery optimization, restore receiver
+└── ui/         # Compose: navigation, theme, components, screens
 ```
 
-Unit test JVM (`app/src/test`) mencakup emulator terminal, encoder tombol, format kunci, perintah tmux, parser statistik/Docker, deteksi OS, dan sudo.
+Translations live in `app/src/main/res/values/strings.xml` (English) and `values-in/strings.xml` (Indonesian).
 
-## Lisensi
+## License
 
-TermX dirilis di bawah [lisensi MIT](LICENSE). Komponen pihak ketiga (sshj, Bouncy Castle, AndroidX, font,
-logo OS) memakai lisensinya masing-masing — lihat [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-Laporan celah keamanan: lihat [SECURITY.md](SECURITY.md).
+TermX is released under the [MIT License](LICENSE). Third-party components (sshj, Bouncy Castle, AndroidX, fonts,
+OS logos) use their own licenses — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Security issues: see [SECURITY.md](SECURITY.md).
 
-## Kontribusi
+## Contributing
 
-Issue dan pull request dipersilakan. Jalankan `./gradlew testDebugUnitTest assembleDebug` sebelum mengirim PR.
-Build CI untuk PR dari fork ditandatangani kunci debug bawaan (secret repo tidak tersedia untuk fork).
+Issues and pull requests are welcome. Run `./gradlew testDebugUnitTest assembleDebug` before opening a PR.
+CI builds for pull requests from forks are signed with the default debug key (repository secrets are not
+available to forks). When adding UI text, add it to both `values/strings.xml` and `values-in/strings.xml`.
 
-## Catatan
+## Notes
 
-- Port di bawah 1024 tidak bisa dibuka di HP tanpa root (port forwarding lokal/SOCKS).
-- Opsi "Jaga koneksi di latar belakang" memakai wake lock — menambah konsumsi baterai, matikan di Pengaturan bila tidak perlu.
-- Beberapa merek HP (Xiaomi, Oppo, Vivo, Huawei) punya manajer baterai tambahan: izinkan juga "Autostart"/"Tanpa batasan" untuk TermX di pengaturan HP.
-- Logo OS berasal dari [Simple Icons](https://simpleicons.org) (CC0); merek milik pemiliknya masing-masing.
-- Belum ada: sinkronisasi cloud antar perangkat, Mosh, agent forwarding, biometrik app lock — kandidat versi berikutnya.
+- Ports below 1024 cannot be bound on a phone without root (local/SOCKS forwarding).
+- "Keep connection in background" uses a wake lock and costs some battery; turn it off in Settings if not needed.
+- Some brands (Xiaomi, Oppo, Vivo, Huawei) have extra battery managers: also allow "Autostart"/"No restrictions" for TermX.
+- OS logos come from [Simple Icons](https://simpleicons.org) (CC0); trademarks belong to their owners.
+- Not yet: cloud sync between devices, Mosh, agent forwarding, biometric app lock.

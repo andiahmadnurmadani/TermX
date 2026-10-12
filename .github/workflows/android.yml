@@ -29,7 +29,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
-      - name: Kunci debug (secret; dilewati untuk PR dari fork)
+      - name: Debug signing key (secret; skipped for fork PRs)
         env:
           KEYSTORE_B64: ${{ secrets.TERMX_DEBUG_KEYSTORE_B64 }}
         run: |
@@ -71,4 +71,4 @@ jobs:
           gh release create latest-debug termx-debug.apk \
             --prerelease --target "${GITHUB_SHA}" \
             --title "TermX debug ${GITHUB_SHA::7}" \
-            --notes "APK debug otomatis dari commit ${GITHUB_SHA}. Pasang di Android 8.0+ (izinkan instal dari sumber tidak dikenal). Versi berikutnya bisa dipasang menimpa tanpa uninstall."
+            --notes "Automatic debug build from ${GITHUB_SHA}. Install on Android 8.0+ (allow unknown sources). For stable builds use the latest release."

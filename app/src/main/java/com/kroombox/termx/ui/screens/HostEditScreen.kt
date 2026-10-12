@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import com.kroombox.termx.os.OsCatalog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material3.TextButton
@@ -149,10 +151,10 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (original == null) "Host baru" else "Edit host") },
-                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                title = { Text(if (original == null) stringResource(R.string.hostedit_title_new) else stringResource(R.string.hostedit_title_edit)) },
+                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.hostedit_back)) } },
                 actions = {
-                    IconButton(onClick = { save() }, enabled = valid) { Icon(Icons.Rounded.Check, "Simpan") }
+                    IconButton(onClick = { save() }, enabled = valid) { Icon(Icons.Rounded.Check, stringResource(R.string.hostedit_save)) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
@@ -161,97 +163,97 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
         Column(
             Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         ) {
-            SectionHeader("Koneksi")
+            SectionHeader(stringResource(R.string.hostedit_section_connection))
             AppCard {
-                OutlinedTextField(label, { label = it }, label = { Text("Nama (opsional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(label, { label = it }, label = { Text(stringResource(R.string.hostedit_name_optional)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 Row {
                     OutlinedTextField(
-                        hostname, { hostname = it.trim() }, label = { Text("Hostname / IP") }, singleLine = true,
+                        hostname, { hostname = it.trim() }, label = { Text(stringResource(R.string.hostedit_hostname)) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
-                        port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("Port") }, singleLine = true,
+                        port, { port = it.filter(Char::isDigit).take(5) }, label = { Text(stringResource(R.string.hostedit_port)) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.width(96.dp),
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(username, { username = it.trim() }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(username, { username = it.trim() }, label = { Text(stringResource(R.string.hostedit_username)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
 
-            SectionHeader("Autentikasi")
+            SectionHeader(stringResource(R.string.hostedit_section_auth))
             AppCard {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = authType == AuthType.PASSWORD, onClick = { authType = AuthType.PASSWORD }, label = { Text("Password") })
-                    FilterChip(selected = authType == AuthType.KEY, onClick = { authType = AuthType.KEY }, label = { Text("Kunci SSH") })
+                    FilterChip(selected = authType == AuthType.PASSWORD, onClick = { authType = AuthType.PASSWORD }, label = { Text(stringResource(R.string.hostedit_auth_password)) })
+                    FilterChip(selected = authType == AuthType.KEY, onClick = { authType = AuthType.KEY }, label = { Text(stringResource(R.string.hostedit_auth_key)) })
                 }
                 Spacer(Modifier.height(10.dp))
                 if (authType == AuthType.PASSWORD) {
                     PasswordField(
                         password, { password = it },
-                        label = if (original?.passwordEnc != null && keepSavedPassword) "Password (tersimpan — isi untuk mengganti)" else "Password",
-                        placeholder = "Kosongkan untuk ditanya saat konek",
+                        label = if (original?.passwordEnc != null && keepSavedPassword) stringResource(R.string.hostedit_password_saved) else stringResource(R.string.hostedit_auth_password),
+                        placeholder = stringResource(R.string.hostedit_password_placeholder),
                     )
                     if (original?.passwordEnc != null) {
-                        LabeledSwitch("Simpan password lama", "Matikan untuk menghapus password tersimpan", keepSavedPassword) { keepSavedPassword = it }
+                        LabeledSwitch(stringResource(R.string.hostedit_keep_password), stringResource(R.string.hostedit_keep_password_sub), keepSavedPassword) { keepSavedPassword = it }
                     }
                     Text(
-                        "Password dienkripsi dengan Android Keystore dan tidak pernah meninggalkan perangkat.",
+                        stringResource(R.string.hostedit_password_note),
                         style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                     )
                 } else {
+                    val pickKeyText = stringResource(R.string.hostedit_pick_key)
                     DropdownField(
-                        label = "Kunci",
+                        label = stringResource(R.string.hostedit_key),
                         options = data.keys,
                         selected = data.keys.firstOrNull { it.id == keyId },
-                        display = { it?.let { k -> "${k.name} · ${k.type}" } ?: "Pilih kunci" },
+                        display = { it?.let { k -> "${k.name} · ${k.type}" } ?: pickKeyText },
                         onSelect = { keyId = it?.id },
                     )
                     if (data.keys.isEmpty()) {
-                        Text("Belum ada kunci. Buat atau impor di tab Keychain.", style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
+                        Text(stringResource(R.string.hostedit_no_keys), style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
                     }
                 }
             }
 
-            SectionHeader("Sudo")
+            SectionHeader(stringResource(R.string.hostedit_section_sudo))
             AppCard {
                 Text(
-                    "Dipakai snippet bertanda sudo (password diketik otomatis saat prompt sudo muncul) dan mode sudo di Monitor.",
+                    stringResource(R.string.hostedit_sudo_note),
                     style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                 )
                 if (authType == AuthType.PASSWORD) {
-                    LabeledSwitch("Pakai password login untuk sudo", "Bila password sudo di bawah kosong", sudoUseLogin) { sudoUseLogin = it }
+                    LabeledSwitch(stringResource(R.string.hostedit_sudo_use_login), stringResource(R.string.hostedit_sudo_use_login_sub), sudoUseLogin) { sudoUseLogin = it }
                 }
                 PasswordField(
                     sudoPassword, { sudoPassword = it },
-                    label = if (original?.sudoPasswordEnc != null && keepSudoPassword) "Password sudo (tersimpan — isi untuk mengganti)" else "Password sudo (opsional)",
-                    placeholder = "Kosongkan untuk ditanya saat dibutuhkan",
+                    label = if (original?.sudoPasswordEnc != null && keepSudoPassword) stringResource(R.string.hostedit_sudo_password_saved) else stringResource(R.string.hostedit_sudo_password_optional),
+                    placeholder = stringResource(R.string.hostedit_sudo_password_placeholder),
                 )
                 if (original?.sudoPasswordEnc != null) {
-                    LabeledSwitch("Simpan password sudo lama", "Matikan untuk menghapusnya", keepSudoPassword) { keepSudoPassword = it }
+                    LabeledSwitch(stringResource(R.string.hostedit_keep_sudo_password), stringResource(R.string.hostedit_keep_sudo_password_sub), keepSudoPassword) { keepSudoPassword = it }
                 }
-                LabeledSwitch("Monitor memakai sudo", "Agar Docker dan data root lain terbaca di layar Monitor", monitorSudo) { monitorSudo = it }
+                LabeledSwitch(stringResource(R.string.hostedit_monitor_sudo), stringResource(R.string.hostedit_monitor_sudo_sub), monitorSudo) { monitorSudo = it }
             }
 
-            SectionHeader("Sesi persisten (tmux)")
+            SectionHeader(stringResource(R.string.hostedit_section_tmux))
             AppCard {
                 LabeledSwitch(
-                    "Selalu buka di tmux",
-                    "Mati (default): ketuk host = terminal biasa; tmux tetap bisa dipilih dari menu host, tab Sesi, atau menu terminal. " +
-                        "Di tmux, proses tetap berjalan di server saat HP terputus.",
+                    stringResource(R.string.hostedit_always_tmux),
+                    stringResource(R.string.hostedit_always_tmux_sub),
                     persistent,
                 ) { persistent = it }
                 run {
-                    OutlinedTextField(tmuxName, { tmuxName = it }, label = { Text("Nama sesi tmux") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    LabeledSwitch("Mouse tmux", "Geser layar untuk menggulir riwayat tmux", tmuxMouse) { tmuxMouse = it }
+                    OutlinedTextField(tmuxName, { tmuxName = it }, label = { Text(stringResource(R.string.hostedit_tmux_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    LabeledSwitch(stringResource(R.string.hostedit_tmux_mouse), stringResource(R.string.hostedit_tmux_mouse_sub), tmuxMouse) { tmuxMouse = it }
                 }
-                LabeledSwitch("Sambung ulang otomatis", "Coba lagi saat jaringan putus atau berganti", autoReconnect) { autoReconnect = it }
+                LabeledSwitch(stringResource(R.string.hostedit_auto_reconnect), stringResource(R.string.hostedit_auto_reconnect_sub), autoReconnect) { autoReconnect = it }
             }
 
-            SectionHeader("Ikon")
+            SectionHeader(stringResource(R.string.hostedit_section_icon))
             AppCard {
                 val preview = (original ?: Host(label = "", hostname = "", username = "")).copy(
                     label = label.ifBlank { hostname.ifBlank { "?" } }, icon = icon, colorIndex = colorIndex,
@@ -263,49 +265,50 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
                         val os = OsCatalog.byId(original?.osId)
                         Text(
                             when {
-                                icon == "auto" && os != null -> "Otomatis: ${os.title}"
-                                icon == "auto" -> "Otomatis (OS terdeteksi saat konek)"
-                                else -> "Ikon pilihan sendiri"
+                                icon == "auto" && os != null -> stringResource(R.string.hostedit_icon_auto_os, os.title)
+                                icon == "auto" -> stringResource(R.string.hostedit_icon_auto)
+                                else -> stringResource(R.string.hostedit_icon_custom)
                             },
                             style = MaterialTheme.typography.titleSmall,
                         )
                         if (redetect) {
-                            Text("OS akan dideteksi ulang saat konek berikutnya.", style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
+                            Text(stringResource(R.string.hostedit_redetect_pending), style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
                         } else {
                             original?.osName?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim) }
                         }
                         if (original?.osId != null && !redetect) {
                             TextButton(onClick = { redetect = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                                Text("Deteksi ulang OS")
+                                Text(stringResource(R.string.hostedit_redetect))
                             }
                         }
                     }
                 }
                 TextButton(onClick = { pickIcon = !pickIcon }) {
-                    Text(if (pickIcon) "Tutup pilihan ikon" else "Ganti ikon")
+                    Text(if (pickIcon) stringResource(R.string.hostedit_close_icon_picker) else stringResource(R.string.hostedit_change_icon))
                 }
                 AnimatedVisibility(pickIcon) {
                     IconPicker(
                         selected = icon, onSelect = { icon = it }, accentColor = accent(colorIndex),
-                        allowAuto = true, autoLabel = "Otomatis (sesuai OS)",
+                        allowAuto = true, autoLabel = stringResource(R.string.hostedit_icon_auto_label),
                     )
                 }
             }
 
-            SectionHeader("Organisasi")
+            SectionHeader(stringResource(R.string.hostedit_section_organize))
             AppCard {
+                val noGroupText = stringResource(R.string.hostedit_no_group)
                 DropdownField(
-                    label = "Grup",
+                    label = stringResource(R.string.hostedit_group),
                     options = data.groups,
                     selected = data.groups.firstOrNull { it.id == groupId },
-                    display = { it?.name ?: "Tanpa grup" },
+                    display = { it?.name ?: noGroupText },
                     onSelect = { groupId = it?.id },
-                    allowNone = true, noneLabel = "Tanpa grup",
+                    allowNone = true, noneLabel = noGroupText,
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(tags, { tags = it }, label = { Text("Tag (pisahkan dengan koma)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(tags, { tags = it }, label = { Text(stringResource(R.string.hostedit_tags)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
-                Text("Warna", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.hostedit_color), style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     AccentColors.indices.forEach { i ->
@@ -319,33 +322,34 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
                 }
             }
 
-            SectionHeader("Lanjutan")
+            SectionHeader(stringResource(R.string.hostedit_section_advanced))
             AppCard {
+                val directText = stringResource(R.string.hostedit_direct)
                 DropdownField(
-                    label = "Jump host (bastion)",
+                    label = stringResource(R.string.hostedit_jump_host),
                     options = data.hosts.filter { it.id != original?.id },
                     selected = data.hosts.firstOrNull { it.id == jumpHostId },
-                    display = { it?.let { h -> "${h.label} (${h.address})" } ?: "Langsung" },
+                    display = { it?.let { h -> "${h.label} (${h.address})" } ?: directText },
                     onSelect = { jumpHostId = it?.id },
-                    allowNone = true, noneLabel = "Langsung (tanpa jump host)",
+                    allowNone = true, noneLabel = stringResource(R.string.hostedit_direct_no_jump),
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    keepAlive, { keepAlive = it.filter(Char::isDigit).take(3) }, label = { Text("Keep-alive (detik)") }, singleLine = true,
+                    keepAlive, { keepAlive = it.filter(Char::isDigit).take(3) }, label = { Text(stringResource(R.string.hostedit_keepalive)) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    startup, { startup = it }, label = { Text("Perintah awal (opsional)") },
-                    placeholder = { Text("mis. cd /srv/app && claude") }, modifier = Modifier.fillMaxWidth(),
+                    startup, { startup = it }, label = { Text(stringResource(R.string.hostedit_startup)) },
+                    placeholder = { Text(stringResource(R.string.hostedit_startup_placeholder)) }, modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(notes, { notes = it }, label = { Text("Catatan") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                OutlinedTextField(notes, { notes = it }, label = { Text(stringResource(R.string.hostedit_notes)) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
             }
 
             Spacer(Modifier.height(20.dp))
             Button(onClick = { save() }, enabled = valid, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text(if (original == null) "Simpan host" else "Simpan perubahan")
+                Text(if (original == null) stringResource(R.string.hostedit_save_host) else stringResource(R.string.hostedit_save_changes))
             }
             Spacer(Modifier.height(32.dp))
         }

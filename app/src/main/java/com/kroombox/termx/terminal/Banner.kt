@@ -40,6 +40,7 @@ object Banner {
         mode: String,
         cols: Int,
         now: Date = Date(),
+        locale: Locale = Locale.ENGLISH,
     ): String {
         val sb = StringBuilder()
         sb.append("\r\n")
@@ -60,7 +61,7 @@ object Banner {
         line(GREEN, "$BOLD$userHost$RESET")
         if (!osName.isNullOrBlank()) line(CYAN, osName)
         line(CYAN, mode)
-        val time = SimpleDateFormat("EEE, d MMM yyyy HH:mm", Locale("id", "ID")).format(now)
+        val time = SimpleDateFormat("EEE, d MMM yyyy HH:mm", locale).format(now)
         line(DIM, "$DIM$time$RESET")
         sb.append(DIM).append("─".repeat((cols - 2).coerceIn(10, LOGO_WIDTH + 2))).append(RESET).append("\r\n")
         return sb.toString()

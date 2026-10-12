@@ -1,5 +1,7 @@
 package com.kroombox.termx.ssh
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
 import com.kroombox.termx.data.ForwardRule
 import com.kroombox.termx.data.ForwardType
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +42,7 @@ class PortForwardManager(private val manager: SessionManager) {
         try {
             val conn = manager.connectionFor(rule.hostId)
             manager.acquire(rule.hostId, "fwd:${rule.id}")
-            val client = conn.client ?: throw SshException("Belum tersambung")
+            val client = conn.client ?: throw SshException(S.get(R.string.ssh_not_connected))
             val handle: Closeable = when (rule.type) {
                 ForwardType.LOCAL -> startLocal(client, rule)
                 ForwardType.REMOTE -> startRemote(client, rule)
@@ -78,7 +80,7 @@ class PortForwardManager(private val manager: SessionManager) {
             val h = synchronized(active) { active.remove(r.id) } ?: continue
             try { h.close() } catch (_: Exception) {}
             manager.dropUser(hostId, "fwd:${r.id}")
-            set(r.id, ForwardStatus(false, "Koneksi terputus"))
+            set(r.id, ForwardStatus(false, S.get(R.string.ssh_connection_lost)))
         }
     }
 

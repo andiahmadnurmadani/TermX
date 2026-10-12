@@ -1,162 +1,123 @@
 # Changelog
 
-Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
-versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
+All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
+
+## [0.8.0] - 2026-10-12
+
+### Added
+- **English and Bahasa Indonesia.** English is the default; switch in **Settings → Language** (English, Bahasa
+  Indonesia, or system default). Notifications, connection messages, and errors follow the selected language.
+
+### Changed
+- Documentation in English (README, CHANGELOG, SECURITY), with an Indonesian README (`README.id.md`).
+- Default snippets have English names.
 
 ## [0.7.1] - 2026-10-12
 
-### Diperbaiki
-- Judul "SFTP" tidak lagi turun per huruf: bar atas SFTP kini hanya berisi Segarkan dan File baru; Folder induk,
-  Folder baru, file tersembunyi, dan Tutup sesi SFTP pindah ke menu ⋮.
+### Fixed
+- The "SFTP" title no longer wraps letter by letter: the SFTP top bar keeps Refresh and New file; Parent folder,
+  New folder, hidden files, and Close SFTP session moved to the ⋮ menu.
 
-### Proyek
-- Repo dibuka untuk publik dengan [lisensi MIT](LICENSE), [SECURITY.md](SECURITY.md), dan
+### Project
+- Repository made public under the [MIT License](LICENSE), with [SECURITY.md](SECURITY.md) and
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-- Kunci tanda tangan debug tidak lagi disimpan di repo (dipindah ke secret CI dan diganti baru). Build debug lama
-  perlu di-uninstall sekali sebelum memasang build debug baru; APK dari **Releases** tidak terpengaruh.
+- The debug signing key is no longer stored in the repository (moved to a CI secret and rotated). Uninstall old
+  debug builds once before installing a new debug build; APKs from **Releases** are not affected.
 
 ## [0.7.0] - 2026-10-12
 
-### Ditambahkan
-- **Sesi SFTP** (ala Termius): membuka SFTP membuat sesi yang tampil di tab **Sesi** (dengan pratinjau isi folder),
-  di panel sesi terminal, dan di notifikasi. Sesi tetap terbuka (dan dipulihkan bila aplikasi dimatikan Android)
-  sampai ditutup dengan ✕. Panel **Sesi baru** di terminal punya tombol SFTP per host.
+### Added
+- **SFTP sessions** (Termius-style): opening SFTP creates a session shown in **Sessions** (with a folder preview),
+  in the terminal's session panel, and in the notification. It stays open (and is restored if Android kills the app)
+  until closed with ✕. The **New session** panel has an SFTP button per host.
 
-### Diubah
-- Banner saat tersambung tidak lagi menulis "terminal biasa": kini menampilkan nama host, OS, dan
-  `SSH · user@host:port` (atau `SSH · tmux "nama" (tetap jalan di server)`).
+### Changed
+- The connect banner shows the host name, OS, and `SSH · user@host:port` (or the tmux session).
 
 ## [0.6.1] - 2026-10-12
 
-### Diubah
-- Tata letak terminal ala Termius: tanpa bar atas; di bawah ada **‹** kembali, pil sesi aktif (ikon host, nama,
-  **✕** tutup sesi ini, ketuk untuk daftar sesi), **+** sesi baru, dan tombol **keyboard** (tampil/sembunyi).
-- Baris tombol: ikon **snippet**, **password sudo**, **menu** (⋯), dan **file (SFTP)**, lalu `esc` `tab` `shift+tab`
-  `ctrl` `alt` dan panah. Tombol baru `STAB` (shift+tab) bisa dipakai di susunan sendiri.
+### Changed
+- Termius-style terminal layout: no top bar; at the bottom **‹** back, the active session pill (host icon, name,
+  **✕** close, tap for the session list), **+** new session, and a **keyboard** toggle.
+- Key row: snippet, sudo password, menu (⋯), and file (SFTP) icons, followed by `esc` `tab` `shift+tab` `ctrl` `alt`
+  and arrows. New `STAB` (shift+tab) key token.
 
-### Diperbaiki
-- **Koneksi tidak lagi diputus saat jaringan berganti.** Sebelumnya setiap pergantian jaringan (termasuk VPN seperti
-  Tailscale yang alamatnya tetap) memutus semua koneksi. Kini setiap koneksi diperiksa dulu dengan keepalive SSH;
-  hanya yang tidak membalas dalam 8 detik yang disambung ulang.
+### Fixed
+- **Connections are no longer dropped when the network changes.** Previously every network change (including VPNs
+  such as Tailscale, whose address stays the same) dropped all connections. Each connection is now probed with an SSH
+  keepalive; only those that do not answer within 8 seconds are reconnected.
 
 ## [0.6.0] - 2026-10-12
 
-### Ditambahkan
-- **Text editor** layar penuh untuk file di server: nomor baris, font terminal, wrap bisa dinyalakan/dimatikan,
-  **Undo/Redo**, **Cari & Ganti** (berikutnya/sebelumnya/semua), **auto-indent** saat Enter, baris simbol koding di atas
-  keyboard (Tab, `{ } [ ] ( ) < > / | ; : = " ' $ # ~ - _` …), ukuran huruf, penanda belum disimpan dan konfirmasi
-  saat keluar. File milik root bisa **dibuka/disimpan dengan sudo** bila izin ditolak.
-- Editor dibuka dari SFTP (ketuk file teks, menu **Lihat / edit**, atau **File baru**) dan dari menu terminal
-  (**Edit file…** dengan path, mis. `~/.bashrc` atau `/etc/nginx/nginx.conf`).
+### Added
+- Full-screen **text editor** for files on the server: line numbers, terminal font, toggleable wrap, **undo/redo**,
+  **find & replace**, **auto-indent**, a symbol bar above the keyboard, font size, unsaved-changes marker and exit
+  confirmation. Root-owned files can be **opened/saved with sudo** when permission is denied.
+- The editor opens from SFTP (tap a text file, **View / edit**, or **New file**) and from the terminal menu (**Edit file…**).
 
-### Diperbaiki
-- SFTP tetap di folder terakhir saat kembali dari layar lain.
+### Fixed
+- SFTP stays in the last folder when returning from another screen.
 
 ## [0.5.0] - 2026-10-12
 
-### Diubah
-- Tab **Sesi** (ala Termius) hanya menampilkan sesi yang sedang tersambung, masing-masing dengan **pratinjau layar
-  terminal** yang diperbarui tiap detik. Ketuk untuk masuk, ✕ untuk menutup.
-- Bar atas terminal: tombol **+** untuk membuka sesi baru ke host mana pun tanpa keluar dari terminal, dan tombol
-  **✕** untuk menutup sesi yang sedang dibuka (keluar terminal otomatis bila tidak ada sesi tersisa). Tombol snippet
-  dipindah ke bar tombol bawah dan menu.
+### Changed
+- **Sessions** shows only connected sessions, each with a live **terminal preview**.
+- Terminal: **+** opens a new session to any host without leaving, **✕** closes the current session.
 
-### Ditambahkan
-- **Keychain**: setiap kunci menampilkan server tempat kunci terpasang (tercatat saat dipasang lewat tombol
-  **Pasang**, saat dicek, atau saat login dengan kunci itu berhasil), host yang memakainya untuk login, serta tombol
-  **Cek** (periksa authorized_keys di server) dan **Lepas** (hapus dari server).
+### Added
+- **Keychain** shows the servers each key is installed on (recorded on install, check, or successful key login),
+  hosts using the key, and **Check** / **Remove** actions.
 
 ## [0.4.1] - 2026-10-12
 
-### Keamanan
-- Isi otomatis password sudo kini hanya berjalan bila **Anda sendiri** baru saja menjalankan `sudo` (Enter pada baris
-  berisi `sudo` dalam 15 detik terakhir, atau snippet sudo). Teks yang mirip prompt sudo dari program lain
-  (`cat` file, skrip, output server) tidak lagi memicu pengetikan password; yang muncul hanya tombol
-  **Isi password sudo**.
+### Security
+- Sudo password autofill now only runs right after **you** run `sudo` (Enter on a line containing `sudo` within the
+  last 15 seconds, or a sudo snippet). Text that merely looks like a sudo prompt no longer triggers typing the password.
 
 ## [0.4.0] - 2026-10-12
 
-### Ditambahkan
-- **Pengelolaan sesi ala Termius**: bar atas terminal menampilkan sesi yang sedang dibuka (ikon host, mode, status) dan
-  jumlah sesi aktif. Ketuk untuk membuka panel **Sesi**: pindah sesi, tutup sesi, buka sesi baru ke host mana pun
-  (terminal atau tmux), dan masuk ke sesi tmux yang hidup di server.
-- Tab Sesi: bagian **Aktif** di paling atas berisi semua koneksi yang sedang berjalan.
-- **Autocomplete perintah**: saran di atas bar tombol dari riwayat perintah host, snippet, dan perintah umum.
-  Perintah yang tidak tampil di layar saat diketik (mis. password) tidak pernah disimpan. Bisa dimatikan dan
-  riwayatnya dihapus di Pengaturan.
-- **Isi otomatis password sudo** (seperti Termius): prompt `[sudo] password for <user>` diisi otomatis dengan password
-  sudo tersimpan; prompt password lain menampilkan tombol **Isi password sudo**. Berhenti otomatis bila password ditolak.
-- **Warna grup** bisa diubah (dan grup bisa diganti nama/dihapus) lewat ikon edit di chip grup; warna tampil di chip,
-  judul grup, dan tepi kartu host.
+### Added
+- Termius-style session management, **command autocomplete**, **sudo password autofill**, editable **group colors**.
 
-### Diubah
-- Logo kembali ke prompt `>_`, kini dengan warna tema aplikasi (latar gelap, mint ke biru).
+### Changed
+- Logo returns to the `>_` prompt in the app's theme colors.
 
 ## [0.3.3] - 2026-10-12
 
-### Diubah
-- Keyboard terminal tidak lagi memakai mode password. Default **Standar** (seperti Termux): keyboard HP tampil normal
-  dan setiap huruf langsung terkirim.
-- Pilihan jenis keyboard di Pengaturan: Standar, Teks dengan saran (autocorrect), atau Tanpa saran (mode lama).
-
-### Diperbaiki
-- Jeda saat mengetik: teks yang sedang disusun keyboard kini langsung dikirim (perubahan dari saran/autocorrect
-  dikirim sebagai selisih), bukan menunggu kata selesai.
+### Changed
+- The terminal keyboard no longer uses the password keyboard type; default **Standard** mode sends every key
+  immediately. Keyboard type selectable in Settings.
 
 ## [0.3.2] - 2026-10-12
 
-### Diubah
-- Logo baru: jendela terminal `>_` dengan rak server, bergradien sian-biru (ikon launcher, ikon bertema, notifikasi, halaman Tentang).
-- Terminal yang dibuka baru dari host selalu kosong. Riwayat layar hanya ditampilkan saat membuka lagi sesi dari tab
-  **Sesi** (Baru ditutup / sesi tmux) atau saat tab dipulihkan otomatis.
-- Setiap tab terminal biasa punya riwayat sendiri, sehingga membuka terminal baru tidak menimpa riwayat sesi lama.
-- "Putuskan semua" memasukkan tab ke daftar Baru ditutup agar riwayatnya tetap bisa dibuka.
+### Changed
+- New terminals opened from a host start empty; screen history is shown when reopening a session from Sessions.
 
 ## [0.3.1] - 2026-10-12
 
-### Diubah
-- Ikon aplikasi: prompt `>_` diperkecil agar proporsional di launcher.
-- Tombol **Putuskan semua…** di notifikasi kini meminta konfirmasi di aplikasi, supaya sesi tidak terhapus karena salah ketuk.
+### Changed
+- Smaller `>_` launcher icon; **Disconnect all…** in the notification asks for confirmation.
 
-### Diperbaiki
-- Sesi tetap berjalan di latar belakang setelah aplikasi ditutup dari daftar aplikasi terbaru: service tidak ikut
-  berhenti, notifikasi tetap tampil, dan bila HP tetap mematikan prosesnya, service dijadwalkan hidup lagi dan
-  semua tab dipulihkan.
-- Sesi aktif dipulihkan otomatis setelah HP dinyalakan ulang atau aplikasi diperbarui.
+### Fixed
+- Sessions keep running after the app is swiped away; restored after reboot or update.
 
 ## [0.3.0] - 2026-10-12
 
-### Ditambahkan
-- Banner ASCII **TermX** di atas terminal saat tersambung, berisi user@host, OS, mode (biasa/tmux), dan waktu.
-- Tab **Sesi** berupa daftar host yang bisa dibuka-tutup: tab terbuka, sesi tmux di server (dimuat otomatis),
-  dan tab yang baru ditutup per host — tidak perlu membuat sesi secara manual.
-- Snippet dijalankan dari dalam terminal: tombol ⚡ di bar atas, di bar tombol bawah, dan item **Snippet** di menu.
-- Tombol **Deteksi ulang OS** di editor host.
-- Riwayat layar terminal disimpan per sesi dan dimuat lagi saat tab dibuka kembali, setelah aplikasi ditutup,
-  atau setelah proses dimatikan Android (warna ikut tersimpan).
-- Daftar **Baru ditutup** di tab Sesi untuk membuka lagi tab yang ditutup beserta riwayatnya.
-- Riwayat tmux di server diperbesar menjadi 50.000 baris untuk sesi baru.
-- Rilis resmi bertanda tangan dari tag Git, dengan CHANGELOG dan checksum SHA-256.
+### Added
+- ASCII banner on connect, per-host Sessions view, snippets run from the terminal, persistent screen history,
+  signed releases from Git tags.
 
-### Diubah
-- Default konek menjadi **terminal biasa**; tmux tetap tersedia lewat menu host ("Terminal tmux"), tab Sesi,
-  dan menu terminal ("Tab baru di tmux"). Host lama dimigrasikan sekali ke default baru.
-- Tab Snippet hanya untuk mengelola daftar (eksekusi dari terminal).
-- OS server dideteksi sekali saat koneksi pertama lalu disimpan; tidak dideteksi ulang setiap membuka aplikasi.
-- Logo baru bergaya terminal: prompt `>_` bergradien sian-hijau.
-- Pemilih ikon host dan snippet bisa dilipat (Logo OS / Ikon), dan di editor host baru muncul saat menekan "Ganti ikon".
-- Logo dan teks "TermX" di dalam aplikasi hanya ditampilkan di halaman Tentang.
+### Changed
+- Plain terminal is the default; tmux is optional. OS is detected once on first connect.
 
 ## [0.2.0] - 2026-10-12
 
-### Ditambahkan
-- Nama aplikasi TermX (sebelumnya Konsol) dengan logo baru.
-- Ikon host otomatis sesuai OS server (31 logo), bisa diganti logo OS, ikon bawaan, atau emoji.
-- Snippet dengan ikon pilihan dan opsi sudo (password diketik otomatis saat prompt sudo muncul).
-- Monitor dengan mode sudo, petunjuk bila Docker butuh sudo, dan daftar container.
-- Sesi tidak putus sampai pengguna memutuskannya: sambung ulang tanpa batas, pemulihan tab, notifikasi tetap.
+### Added
+- App renamed to TermX with a new logo; OS-based host icons; snippets with icons and sudo; monitor sudo mode;
+  sessions that stay connected until the user disconnects.
 
 ## [0.1.0] - 2026-10-12
 
-### Ditambahkan
-- Rilis awal: terminal SSH, tmux persisten, SFTP, port forwarding, keychain, snippet, monitor, font kustom.
+### Added
+- Initial release: SSH terminal, persistent tmux, SFTP, port forwarding, keychain, snippets, monitor, custom fonts.

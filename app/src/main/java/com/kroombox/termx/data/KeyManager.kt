@@ -1,5 +1,9 @@
 package com.kroombox.termx.data
 
+import androidx.annotation.StringRes
+import com.kroombox.termx.R
+import com.kroombox.termx.i18n.S
+
 import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.common.Buffer
 import net.schmizz.sshj.common.Factory
@@ -22,7 +26,9 @@ class StaticPasswordFinder(private val password: String?) : PasswordFinder {
 
 object KeyManager {
 
-    enum class GenType(val label: String) { ED25519("Ed25519 (disarankan)"), RSA4096("RSA 4096"), RSA2048("RSA 2048") }
+    enum class GenType(@StringRes val label: Int) {
+        ED25519(R.string.keys_type_ed25519), RSA4096(R.string.keys_type_rsa4096), RSA2048(R.string.keys_type_rsa2048)
+    }
 
     fun generate(name: String, type: GenType, comment: String): SshKey {
         return when (type) {
@@ -70,7 +76,7 @@ object KeyManager {
         val text = privateKey.trim().replace("\r\n", "\n") + "\n"
         val format = KeyProviderUtil.detectKeyFileFormat(text, false)
         val provider = Factory.Named.Util.create(DefaultConfig().fileKeyProviderFactories, format.toString())
-            ?: throw IllegalArgumentException("Format kunci tidak didukung: $format")
+            ?: throw IllegalArgumentException(S.get(R.string.keys_err_unsupported_format, format.toString()))
         provider.init(text, null, StaticPasswordFinder(passphrase))
         // Memanggil private memastikan passphrase benar.
         provider.private

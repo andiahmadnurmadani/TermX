@@ -1,5 +1,7 @@
 package com.kroombox.termx.ssh
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
 import com.kroombox.termx.data.AuthType
 import com.kroombox.termx.data.Host
 import com.kroombox.termx.data.KeyManager
@@ -26,7 +28,15 @@ import java.io.ByteArrayOutputStream
 import java.security.PublicKey
 import java.util.concurrent.TimeUnit
 
-class SshException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/**
+ * Error koneksi yang ditampilkan ke pengguna. [fatal] = butuh tindakan pengguna (login/kunci/host key),
+ * jadi sesi tidak disambung ulang otomatis. Ditentukan lewat flag, bukan isi pesan, agar berlaku di
+ * semua bahasa.
+ */
+open class SshException(message: String, cause: Throwable? = null, val fatal: Boolean = false) : Exception(message, cause)
+
+/** Password sudo ditolak server. */
+class SudoWrongPasswordException(message: String) : SshException(message)
 
 data class ExecResult(val stdout: String, val stderr: String, val exitCode: Int?)
 
@@ -65,7 +75,7 @@ class SshConnection(
         try {
             if (jump != null) {
                 if (!jump.isConnected) jump.connect()
-                val jc = jump.client ?: throw SshException("Jump host tidak tersambung")
+                val jc = jump.client ?: throw SshException(S.get(R.string.ssh_jump_not_connected))
                 val tunnel = jc.newDirectConnection(host.hostname, host.port)
                 c.connectVia(tunnel)
             } else {
@@ -83,7 +93,7 @@ class SshConnection(
     private fun authenticate(c: SSHClient) {
         when (host.authType) {
             AuthType.KEY -> {
-                val key = vault.key(host.keyId) ?: throw SshException("Kunci SSH untuk host ini tidak ditemukan")
+                val key = vault.key(host.keyId) ?: throw SshException(S.get(R.string.ssh_key_not_found), fatal = true)
                 val provider = c.loadKeys(
                     KeyManager.privateKeyText(key), null, StaticPasswordFinder(KeyManager.passphrase(key)),
                 )
@@ -96,8 +106,8 @@ class SshConnection(
                 var save = false
                 if (password == null) {
                     val ans = runBlocking {
-                        Prompts.askPassword("Password untuk ${host.label}", host.address)
-                    } ?: throw SshException("Login dibatalkan")
+                        Prompts.askPassword(S.get(R.string.ssh_password_for, host.label), host.address)
+                    } ?: throw SshException(S.get(R.string.ssh_login_cancelled), fatal = true)
                     password = ans.password
                     save = ans.save
                 }
@@ -105,7 +115,7 @@ class SshConnection(
                 try {
                     c.auth(host.username, AuthPassword(finder), AuthKeyboardInteractive(PasswordResponseProvider(finder)))
                 } catch (e: UserAuthException) {
-                    throw SshException("Autentikasi gagal: username/password salah", e)
+                    throw SshException(S.get(R.string.ssh_auth_failed_password), e, fatal = true)
                 }
                 if (save) {
                     val enc = SecretBox.encrypt(password)
@@ -117,21 +127,21 @@ class SshConnection(
 
     private fun translate(e: Exception): Exception = when (e) {
         is SshException -> e
-        is UserAuthException -> SshException("Autentikasi ditolak server", e)
-        is java.net.UnknownHostException -> SshException("Host tidak ditemukan: ${host.hostname}", e)
-        is java.net.ConnectException -> SshException("Koneksi ditolak (${host.hostname}:${host.port})", e)
-        is java.net.SocketTimeoutException -> SshException("Waktu koneksi habis", e)
+        is UserAuthException -> SshException(S.get(R.string.ssh_auth_rejected), e, fatal = true)
+        is java.net.UnknownHostException -> SshException(S.get(R.string.ssh_host_not_found, host.hostname), e)
+        is java.net.ConnectException -> SshException(S.get(R.string.ssh_connection_refused, host.hostname, host.port), e)
+        is java.net.SocketTimeoutException -> SshException(S.get(R.string.ssh_connect_timeout), e)
         else -> {
             val chain = generateSequence(e as Throwable) { it.cause }.toList()
             val hostKey = chain.any { it.message?.contains("HOST_KEY_NOT_VERIFIABLE") == true || it.message?.contains("Could not verify") == true }
-            if (hostKey) SshException("Host key ditolak", e)
+            if (hostKey) SshException(S.get(R.string.ssh_host_key_rejected), e, fatal = true)
             else SshException(e.message ?: e.javaClass.simpleName, e)
         }
     }
 
     /** Buka shell interaktif dengan PTY. Bila [command] diisi, perintah itu dijalankan di PTY. */
     fun openShell(cols: Int, rows: Int, command: String?): Pair<Session, Session.Shell?> {
-        val c = client ?: throw SshException("Belum tersambung")
+        val c = client ?: throw SshException(S.get(R.string.ssh_not_connected))
         val session = c.startSession()
         session.allocatePTY("xterm-256color", cols, rows, 0, 0, emptyMap())
         try {
@@ -149,7 +159,7 @@ class SshConnection(
 
     /** Jalankan perintah non-interaktif dan kumpulkan outputnya. */
     fun exec(command: String, timeoutSec: Long = 20, stdin: String? = null): ExecResult {
-        val c = client ?: throw SshException("Belum tersambung")
+        val c = client ?: throw SshException(S.get(R.string.ssh_not_connected))
         val session = c.startSession()
         try {
             val cmd = session.exec(command)
@@ -169,7 +179,7 @@ class SshConnection(
             outThread.join(timeoutSec * 1000)
             if (outThread.isAlive) {
                 try { session.close() } catch (_: Exception) {}
-                throw SshException("Perintah melebihi batas waktu ${timeoutSec} detik")
+                throw SshException(S.get(R.string.ssh_command_timeout, timeoutSec.toInt()))
             }
             errThread.join(2000)
             try { cmd.join(2, TimeUnit.SECONDS) } catch (_: Exception) {}
@@ -199,22 +209,22 @@ class SshConnection(
             val r = exec("sudo -n sh -s", timeoutSec, stdin = script)
             when {
                 Sudo.needsPassword(r.stderr) -> sudoNeedsPassword = true
-                Sudo.notInstalled(r.stderr) -> throw SshException("sudo tidak terpasang di server ini")
-                Sudo.notAllowed(r.stderr) -> throw SshException("User ${host.username} tidak diizinkan memakai sudo")
+                Sudo.notInstalled(r.stderr) -> throw SshException(S.get(R.string.ssh_sudo_not_installed))
+                Sudo.notAllowed(r.stderr) -> throw SshException(S.get(R.string.ssh_sudo_not_allowed, host.username))
                 else -> { sudoNeedsPassword = false; return r }
             }
         }
         val pw = password ?: throw SudoPasswordRequired()
         val r = exec("sudo -S -p '' sh -s", timeoutSec, stdin = pw + "\n" + script)
-        if (Sudo.wrongPassword(r.stderr)) throw SshException("Password sudo salah")
-        if (Sudo.notAllowed(r.stderr)) throw SshException("User ${host.username} tidak diizinkan memakai sudo")
+        if (Sudo.wrongPassword(r.stderr)) throw SudoWrongPasswordException(S.get(R.string.ssh_sudo_wrong_password))
+        if (Sudo.notAllowed(r.stderr)) throw SshException(S.get(R.string.ssh_sudo_not_allowed, host.username))
         return r
     }
 
     fun sftp(): SFTPClient {
         synchronized(sftpLock) {
             sftpClient?.let { return it }
-            val c = client ?: throw SshException("Belum tersambung")
+            val c = client ?: throw SshException(S.get(R.string.ssh_not_connected))
             return c.newSFTPClient().also { sftpClient = it }
         }
     }

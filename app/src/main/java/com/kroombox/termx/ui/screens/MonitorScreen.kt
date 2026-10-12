@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -117,11 +119,11 @@ fun MonitorScreen(nav: Nav, hostId: String) {
             TopAppBar(
                 title = {
                     Column {
-                        Text("Monitor", style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.mon_title), style = MaterialTheme.typography.titleMedium)
                         Text(host?.label ?: "", style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
                     }
                 },
-                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.mon_back)) } },
                 actions = {
                     FilterChip(
                         selected = useSudo,
@@ -130,7 +132,7 @@ fun MonitorScreen(nav: Nav, hostId: String) {
                         leadingIcon = { Icon(Icons.Rounded.AdminPanelSettings, null, Modifier.size(18.dp)) },
                     )
                     IconButton(onClick = { live = !live }) {
-                        Icon(if (live) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (live) "Jeda" else "Lanjut")
+                        Icon(if (live) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (live) stringResource(R.string.mon_pause) else stringResource(R.string.mon_resume))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -144,8 +146,8 @@ fun MonitorScreen(nav: Nav, hostId: String) {
                     Text(msg, color = Palette.Danger, style = MaterialTheme.typography.bodyMedium)
                     if (useSudo && msg.contains("sudo", ignoreCase = true)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { retry++ }) { Text("Coba lagi") }
-                            TextButton(onClick = { setSudo(false) }) { Text("Tanpa sudo") }
+                            TextButton(onClick = { retry++ }) { Text(stringResource(R.string.mon_retry)) }
+                            TextButton(onClick = { setSudo(false) }) { Text(stringResource(R.string.mon_without_sudo)) }
                         }
                     }
                 }
@@ -154,7 +156,7 @@ fun MonitorScreen(nav: Nav, hostId: String) {
                 if (error == null) {
                     Spacer(Modifier.height(24.dp))
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(if (useSudo) "Mengambil data dari server (read-only, sudo)…" else "Mengambil data dari server (read-only)…", color = Palette.TextDim, modifier = Modifier.padding(top = 12.dp))
+                    Text(if (useSudo) stringResource(R.string.mon_loading_sudo) else stringResource(R.string.mon_loading), color = Palette.TextDim, modifier = Modifier.padding(top = 12.dp))
                 }
                 return@Column
             }
@@ -164,10 +166,10 @@ fun MonitorScreen(nav: Nav, hostId: String) {
                 Text("kernel ${s.kernel}", style = MonoSmall)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Stat("Uptime", formatDuration(s.uptimeSec))
-                    Stat("CPU", "${s.cpus} core")
-                    if (s.dockerAccess == "ok") s.dockerRunning?.let { Stat("Docker", "$it jalan") }
-                    if (s.asRoot) Stat("Mode", "root (sudo)")
+                    Stat(stringResource(R.string.mon_uptime), formatDuration(s.uptimeSec))
+                    Stat("CPU", stringResource(R.string.mon_cores, s.cpus))
+                    if (s.dockerAccess == "ok") s.dockerRunning?.let { Stat("Docker", stringResource(R.string.mon_docker_running, it)) }
+                    if (s.asRoot) Stat(stringResource(R.string.mon_mode), "root (sudo)")
                 }
             }
             if (s.dockerAccess == "denied" && !s.asRoot) {
@@ -177,13 +179,13 @@ fun MonitorScreen(nav: Nav, hostId: String) {
                         Icon(Icons.Rounded.AdminPanelSettings, null, tint = Palette.Warn)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Docker butuh sudo", style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.mon_docker_needs_sudo), style = MaterialTheme.typography.titleSmall)
                             Text(
-                                "User ${host?.username ?: ""} tidak punya akses ke Docker. Aktifkan sudo untuk melihat container.",
+                                stringResource(R.string.mon_docker_no_access, host?.username ?: ""),
                                 style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                             )
                         }
-                        TextButton(onClick = { setSudo(true) }) { Text("Pakai sudo") }
+                        TextButton(onClick = { setSudo(true) }) { Text(stringResource(R.string.mon_use_sudo)) }
                     }
                 }
             }
@@ -202,14 +204,14 @@ fun MonitorScreen(nav: Nav, hostId: String) {
                 }
             }
 
-            SectionHeader("Beban (1 / 5 / 15 menit)")
+            SectionHeader(stringResource(R.string.mon_load))
             AppCard {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     listOf(s.load1, s.load5, s.load15).forEach { l ->
                         val pct = if (s.cpus > 0) l / s.cpus * 100 else 0.0
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(fmt(l), style = MaterialTheme.typography.headlineSmall, color = usageColor(pct))
-                            Text("${pct.toInt()}% kapasitas", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+                            Text(stringResource(R.string.mon_capacity, pct.toInt()), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
                         }
                     }
                 }
@@ -220,18 +222,18 @@ fun MonitorScreen(nav: Nav, hostId: String) {
                 val dt = (s.timestamp - p.timestamp) / 1000.0
                 val rx = ((s.netRxBytes - p.netRxBytes) / dt).coerceAtLeast(0.0)
                 val tx = ((s.netTxBytes - p.netTxBytes) / dt).coerceAtLeast(0.0)
-                SectionHeader("Jaringan")
+                SectionHeader(stringResource(R.string.mon_network))
                 AppCard {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Stat("↓ Masuk", "${formatBytes(rx.toLong())}/s")
-                        Stat("↑ Keluar", "${formatBytes(tx.toLong())}/s")
-                        Stat("Total ↓", formatBytes(s.netRxBytes))
+                        Stat(stringResource(R.string.mon_net_in), "${formatBytes(rx.toLong())}/s")
+                        Stat(stringResource(R.string.mon_net_out), "${formatBytes(tx.toLong())}/s")
+                        Stat(stringResource(R.string.mon_net_total), formatBytes(s.netRxBytes))
                     }
                 }
             }
 
             if (s.disks.isNotEmpty()) {
-                SectionHeader("Disk")
+                SectionHeader(stringResource(R.string.mon_disk))
                 AppCard {
                     s.disks.forEachIndexed { i, d ->
                         if (i > 0) Spacer(Modifier.height(12.dp))
@@ -246,7 +248,7 @@ fun MonitorScreen(nav: Nav, hostId: String) {
             }
 
             if (s.dockerAccess == "ok" && s.containers.isNotEmpty()) {
-                SectionHeader("Container Docker (${s.containers.count { it.running }}/${s.containers.size} jalan)")
+                SectionHeader(stringResource(R.string.mon_containers, s.containers.count { it.running }, s.containers.size))
                 AppCard {
                     s.containers.forEachIndexed { i, c ->
                         if (i > 0) Spacer(Modifier.height(10.dp))
@@ -268,11 +270,11 @@ fun MonitorScreen(nav: Nav, hostId: String) {
             }
 
             if (s.processes.isNotEmpty()) {
-                SectionHeader("Proses teratas (CPU)")
+                SectionHeader(stringResource(R.string.mon_top_processes))
                 AppCard {
                     Row {
                         Text("PID", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, modifier = Modifier.width(64.dp))
-                        Text("PERINTAH", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.mon_command), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, modifier = Modifier.weight(1f))
                         Text("CPU", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, modifier = Modifier.width(56.dp))
                         Text("MEM", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, modifier = Modifier.width(56.dp))
                     }

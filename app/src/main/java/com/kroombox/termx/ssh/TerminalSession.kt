@@ -1,5 +1,8 @@
 package com.kroombox.termx.ssh
 
+import com.kroombox.termx.i18n.Lang
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
 import com.kroombox.termx.data.Host
 import com.kroombox.termx.terminal.Banner
 import com.kroombox.termx.terminal.TerminalEmulator
@@ -156,14 +159,15 @@ class TerminalSession(
                         Banner.render(
                             userHost = host.label,
                             osName = host.osName,
-                            mode = tmuxName?.let { "SSH · tmux \"$it\" (tetap jalan di server)" } ?: "SSH · ${host.username}@${host.hostname}:${host.port}",
+                            mode = tmuxName?.let { S.get(R.string.ssh_banner_mode_tmux, it) } ?: "SSH · ${host.username}@${host.hostname}:${host.port}",
                             cols = emulator.cols,
+                            locale = Lang.locale(manager.vault.current.settings.language),
                         ).toByteArray(),
                     )
                 }
                 setState(SessionState.CONNECTED)
                 _error.value = null
-                if (everConnected) emulator.append("\r\n\u001b[32m[Tersambung kembali]\u001b[0m\r\n".toByteArray())
+                if (everConnected) emulator.append("\r\n\u001b[32m${S.get(R.string.ssh_reconnected)}\u001b[0m\r\n".toByteArray())
                 everConnected = true
                 attempt = 0
                 manager.onSessionConnected(this)
@@ -184,7 +188,8 @@ class TerminalSession(
                 if (connAlive) {
                     setState(SessionState.ENDED)
                     val code = (s as? Session.Command)?.exitStatus
-                    emulator.append("\r\n\u001b[2m[Sesi selesai${if (code != null) " (kode $code)" else ""}]\u001b[0m\r\n".toByteArray())
+                    val ended = if (code != null) S.get(R.string.ssh_session_ended_code, code) else S.get(R.string.ssh_session_ended)
+                    emulator.append("\r\n\u001b[2m$ended\u001b[0m\r\n".toByteArray())
                     cleanupChannel()
                     manager.onSessionEnded(this)
                     return
@@ -203,13 +208,13 @@ class TerminalSession(
             val retryable = host.autoReconnect && !isFatal(failure)
             if (!retryable) {
                 setState(SessionState.FAILED)
-                emulator.append("\r\n\u001b[31m[Gagal: ${msg ?: "koneksi terputus"}]\u001b[0m\r\n".toByteArray())
+                emulator.append("\r\n\u001b[31m${S.get(R.string.ssh_failed, msg ?: S.get(R.string.ssh_connection_lost_lower))}\u001b[0m\r\n".toByteArray())
                 manager.onSessionEnded(this)
                 return
             }
             setState(SessionState.RECONNECTING)
             if (attempt == 0) {
-                val text = if (everConnected) "Koneksi terputus — menyambung ulang otomatis…" else "Gagal tersambung (${msg ?: "?"}) — mencoba lagi…"
+                val text = if (everConnected) S.get(R.string.ssh_reconnecting_auto) else S.get(R.string.ssh_connect_failed_retry, msg ?: "?")
                 emulator.append("\r\n\u001b[33m[$text]\u001b[0m\r\n".toByteArray())
             }
             // 1, 2, 4, 8, lalu tiap 15 detik — tanpa batas sampai pengguna memutuskan.
@@ -219,11 +224,8 @@ class TerminalSession(
         }
     }
 
-    private fun isFatal(e: Throwable?): Boolean {
-        val m = e?.message ?: return false
-        return m.contains("Autentikasi") || m.contains("Host key ditolak") || m.contains("dibatalkan") ||
-            m.contains("Kunci SSH")
-    }
+    /** Kegagalan yang butuh tindakan pengguna (login/kunci/host key) — ditandai lewat [SshException.fatal]. */
+    private fun isFatal(e: Throwable?): Boolean = (e as? SshException)?.fatal == true
 
     /** Salin output ke emulator. Mengembalikan true bila berakhir karena EOF (shell keluar normal). */
     private fun pump(s: Session): Boolean {
@@ -371,7 +373,7 @@ class TerminalSession(
                 scope.launch(Dispatchers.IO) { cleanupChannel() }
             }
             SessionState.ENDED, SessionState.FAILED -> {
-                emulator.append("\r\n\u001b[2m[Menyambung ulang…]\u001b[0m\r\n".toByteArray())
+                emulator.append("\r\n\u001b[2m${S.get(R.string.ssh_reconnecting)}\u001b[0m\r\n".toByteArray())
                 everConnected = true
                 start()
             }

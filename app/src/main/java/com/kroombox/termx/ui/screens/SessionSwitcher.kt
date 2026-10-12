@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -80,15 +82,15 @@ fun SessionSwitcher(
 
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Sesi", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            Text("${sessions.size + sftps.size} aktif", style = MaterialTheme.typography.labelLarge, color = Palette.Accent)
+            Text(stringResource(R.string.sw_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.sw_active_count, sessions.size + sftps.size), style = MaterialTheme.typography.labelLarge, color = Palette.Accent)
         }
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 8.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FilterChip(selected = tab == 0, onClick = { tab = 0 }, label = { Text("Aktif") })
-            FilterChip(selected = tab == 1, onClick = { tab = 1 }, label = { Text("Sesi baru") })
+            FilterChip(selected = tab == 0, onClick = { tab = 0 }, label = { Text(stringResource(R.string.sw_tab_active)) })
+            FilterChip(selected = tab == 1, onClick = { tab = 1 }, label = { Text(stringResource(R.string.sw_tab_new)) })
             FilterChip(selected = tab == 2, onClick = { tab = 2 }, label = { Text("tmux · ${current.host.label}") })
         }
 
@@ -111,7 +113,7 @@ fun SessionSwitcher(
                                 Text(h.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("SFTP · " + f.path.ifEmpty { "~" }, style = MaterialTheme.typography.bodySmall, color = Palette.Blue, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton(onClick = { TermXApp.container.sessions.closeSftp(f.id) }) { Icon(Icons.Rounded.Close, "Tutup sesi SFTP", tint = Palette.TextDim) }
+                            IconButton(onClick = { TermXApp.container.sessions.closeSftp(f.id) }) { Icon(Icons.Rounded.Close, stringResource(R.string.sw_close_sftp), tint = Palette.TextDim) }
                         }
                     }
                 }
@@ -119,7 +121,7 @@ fun SessionSwitcher(
             1 -> Column {
                 TextField(
                     value = query, onValueChange = { query = it },
-                    placeholder = { Text("Cari host…") },
+                    placeholder = { Text(stringResource(R.string.sw_search_host)) },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
@@ -165,7 +167,7 @@ private fun ActiveSessionItem(s: TerminalSession, selected: Boolean, onClick: ()
                 style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Tutup sesi", tint = Palette.TextDim) }
+        IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.sw_close_session), tint = Palette.TextDim) }
     }
 }
 
@@ -208,12 +210,12 @@ private fun RemoteTmuxList(host: Host, onAttach: (String, String) -> Unit) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
-                Text("Memuat sesi tmux…", color = Palette.TextDim)
+                Text(stringResource(R.string.sw_loading_tmux), color = Palette.TextDim)
             }
         }
         error?.let { Text(it, color = Palette.Danger, modifier = Modifier.padding(12.dp)) }
         if (list?.isEmpty() == true) {
-            Text("Belum ada sesi tmux di server ini. Buka lewat tab \"Sesi baru\" → ikon tmux.", color = Palette.TextDim, modifier = Modifier.padding(12.dp))
+            Text(stringResource(R.string.sw_no_tmux), color = Palette.TextDim, modifier = Modifier.padding(12.dp))
         }
         list?.forEach { rs ->
             Row(
@@ -225,7 +227,12 @@ private fun RemoteTmuxList(host: Host, onAttach: (String, String) -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(rs.name, style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "${rs.windows} window · ${if (rs.attachedClients > 0) "${rs.attachedClients} terhubung" else "terlepas"} · aktif ${timeAgo(rs.activityEpoch * 1000)}",
+                        stringResource(
+                            R.string.sw_tmux_info,
+                            rs.windows,
+                            if (rs.attachedClients > 0) stringResource(R.string.sw_tmux_attached, rs.attachedClients) else stringResource(R.string.sw_tmux_detached),
+                            timeAgo(rs.activityEpoch * 1000),
+                        ),
                         style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                     )
                 }

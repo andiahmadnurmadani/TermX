@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,22 +72,22 @@ fun SnippetsScreen(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
-                Text("Snippet", style = MaterialTheme.typography.headlineMedium)
+                Text(stringResource(R.string.snip_title), style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Kelola daftar perintah di sini. Untuk menjalankannya, buka terminal lalu ketuk ⚡ (di bar atas atau bar tombol bawah). Snippet bertanda sudo mengetik password sudo otomatis saat diminta.",
+                    stringResource(R.string.snip_intro),
                     style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim,
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                 )
             }
             if (data.snippets.isEmpty()) {
-                item { Box(Modifier.height(400.dp)) { EmptyState(Icons.Rounded.Bolt, "Belum ada snippet", "Simpan perintah favorit Anda.") } }
+                item { Box(Modifier.height(400.dp)) { EmptyState(Icons.Rounded.Bolt, stringResource(R.string.snip_empty_title), stringResource(R.string.snip_empty_msg)) } }
             }
             items(data.snippets, key = { it.id }) { sn -> SnippetCard(sn, onEdit = { editing = sn }) }
         }
         ExtendedFloatingActionButton(
             onClick = { creating = true },
             icon = { Icon(Icons.Rounded.Add, null) },
-            text = { Text("Snippet") },
+            text = { Text(stringResource(R.string.snip_title)) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -120,12 +122,12 @@ private fun SnippetCard(sn: Snippet, onEdit: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text(sn.command, fontFamily = Mono, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Hapus", tint = Palette.TextDim) }
+            IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, stringResource(R.string.snip_delete), tint = Palette.TextDim) }
         }
     }
     if (confirmDelete) {
         ConfirmDialog(
-            title = "Hapus snippet?", message = "\"${sn.name}\" akan dihapus.", confirmText = "Hapus", danger = true,
+            title = stringResource(R.string.snip_delete_title), message = stringResource(R.string.snip_delete_msg, sn.name), confirmText = stringResource(R.string.snip_delete), danger = true,
             onConfirm = { TermXApp.container.vault.deleteSnippet(sn.id) }, onDismiss = { confirmDelete = false },
         )
     }
@@ -142,7 +144,7 @@ private fun SnippetEditor(initial: Snippet?, onSave: (Snippet) -> Unit, onDismis
     var pickIcon by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "Snippet baru" else "Edit snippet") },
+        title = { Text(stringResource(if (initial == null) R.string.snip_new else R.string.snip_edit)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -150,26 +152,26 @@ private fun SnippetEditor(initial: Snippet?, onSave: (Snippet) -> Unit, onDismis
                         SpecAvatar(icon, name.ifBlank { "?" }, Palette.Warn, size = 52.dp)
                     }
                     Spacer(Modifier.width(12.dp))
-                    OutlinedTextField(name, { name = it }, label = { Text("Nama") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.snip_name)) }, singleLine = true, modifier = Modifier.weight(1f))
                 }
-                TextButton(onClick = { pickIcon = !pickIcon }) { Text(if (pickIcon) "Tutup pilihan ikon" else "Ganti ikon") }
+                TextButton(onClick = { pickIcon = !pickIcon }) { Text(stringResource(if (pickIcon) R.string.snip_icon_close else R.string.snip_icon_change)) }
                 if (pickIcon) {
                     IconPicker(selected = icon, onSelect = { icon = it }, accentColor = Palette.Warn, allowAuto = false)
                 }
                 OutlinedTextField(
-                    command, { command = it }, label = { Text("Perintah") }, minLines = 3,
+                    command, { command = it }, label = { Text(stringResource(R.string.snip_command)) }, minLines = 3,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(description, { description = it }, label = { Text("Deskripsi (opsional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                LabeledSwitch("Tekan Enter otomatis", null, autoRun) { autoRun = it }
+                OutlinedTextField(description, { description = it }, label = { Text(stringResource(R.string.snip_description)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                LabeledSwitch(stringResource(R.string.snip_auto_enter), null, autoRun) { autoRun = it }
                 LabeledSwitch(
-                    "Jalankan dengan sudo",
-                    "Untuk perintah yang butuh root (docker, apt, journalctl…). Password sudo host diketik otomatis saat diminta.",
+                    stringResource(R.string.snip_sudo),
+                    stringResource(R.string.snip_sudo_desc),
                     useSudo,
                 ) { useSudo = it }
                 if (useSudo && command.isNotBlank()) {
-                    Text("Dikirim: ${Sudo.wrap(command)}", fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                    Text(stringResource(R.string.snip_sent, Sudo.wrap(command)), fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
                 }
             }
         },
@@ -182,8 +184,8 @@ private fun SnippetEditor(initial: Snippet?, onSave: (Snippet) -> Unit, onDismis
                         useSudo = useSudo, icon = icon,
                     ),
                 )
-            }) { Text("Simpan") }
+            }) { Text(stringResource(R.string.snip_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.snip_cancel)) } },
     )
 }

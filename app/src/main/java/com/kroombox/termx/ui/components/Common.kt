@@ -1,5 +1,8 @@
 package com.kroombox.termx.ui.components
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -160,7 +163,7 @@ fun <T> DropdownField(
     onSelect: (T?) -> Unit,
     modifier: Modifier = Modifier,
     allowNone: Boolean = false,
-    noneLabel: String = "Tidak ada",
+    noneLabel: String = stringResource(R.string.common_none),
 ) {
     var open by remember { mutableStateOf(false) }
     Box(modifier) {
@@ -220,7 +223,7 @@ fun PasswordField(
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
-                Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, "Tampilkan")
+                Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, stringResource(R.string.common_show))
             }
         },
         modifier = modifier.fillMaxWidth(),
@@ -231,7 +234,7 @@ fun PasswordField(
 fun ConfirmDialog(
     title: String,
     message: String,
-    confirmText: String = "Ya",
+    confirmText: String = stringResource(R.string.common_yes),
     danger: Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -245,7 +248,7 @@ fun ConfirmDialog(
                 Text(confirmText, color = if (danger) Palette.Danger else MaterialTheme.colorScheme.primary)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -313,19 +316,19 @@ fun formatDuration(sec: Long): String {
     val h = (sec % 86400) / 3600
     val m = (sec % 3600) / 60
     return when {
-        d > 0 -> "${d}h ${h}j"
-        h > 0 -> "${h}j ${m}m"
-        else -> "${m}m"
+        d > 0 -> S.get(R.string.common_dur_days_hours, d, h)
+        h > 0 -> S.get(R.string.common_dur_hours_minutes, h, m)
+        else -> S.get(R.string.common_dur_minutes, m)
     }
 }
 
 fun timeAgo(epochMs: Long): String {
-    if (epochMs <= 0) return "belum pernah"
+    if (epochMs <= 0) return S.get(R.string.common_never)
     val diff = (System.currentTimeMillis() - epochMs) / 1000
     return when {
-        diff < 60 -> "baru saja"
-        diff < 3600 -> "${diff / 60} menit lalu"
-        diff < 86400 -> "${diff / 3600} jam lalu"
-        else -> "${diff / 86400} hari lalu"
+        diff < 60 -> S.get(R.string.common_just_now)
+        diff < 3600 -> S.get(R.string.common_minutes_ago, diff / 60)
+        diff < 86400 -> S.get(R.string.common_hours_ago, diff / 3600)
+        else -> S.get(R.string.common_days_ago, diff / 86400)
     }
 }

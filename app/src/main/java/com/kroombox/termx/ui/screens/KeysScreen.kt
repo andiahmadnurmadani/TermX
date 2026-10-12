@@ -1,5 +1,8 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import com.kroombox.termx.ui.components.timeAgo
 import com.kroombox.termx.ui.components.HostAvatar
 import android.content.Intent
@@ -91,9 +94,9 @@ fun KeysScreen(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
-                Text("Keychain", style = MaterialTheme.typography.headlineMedium)
+                Text(stringResource(R.string.keys_title), style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Kunci SSH disimpan terenkripsi dengan Android Keystore.",
+                    stringResource(R.string.keys_subtitle),
                     style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim,
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                 )
@@ -101,7 +104,7 @@ fun KeysScreen(modifier: Modifier = Modifier) {
             if (data.keys.isEmpty()) {
                 item {
                     Box(Modifier.height(400.dp)) {
-                        EmptyState(Icons.Rounded.VpnKey, "Belum ada kunci", "Buat kunci Ed25519 baru atau impor kunci yang sudah ada.")
+                        EmptyState(Icons.Rounded.VpnKey, stringResource(R.string.keys_empty_title), stringResource(R.string.keys_empty_message))
                     }
                 }
             }
@@ -117,8 +120,9 @@ fun KeysScreen(modifier: Modifier = Modifier) {
                             val names = k.installedOn.mapNotNull { i -> data.hosts.firstOrNull { it.id == i.hostId }?.label }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                if (names.isEmpty()) "Belum tercatat terpasang di server mana pun"
-                                else "Terpasang di ${names.size} server: " + names.take(3).joinToString(", ") + if (names.size > 3) ", …" else "",
+                                if (names.isEmpty()) stringResource(R.string.keys_not_installed_anywhere)
+                                else stringResource(R.string.keys_installed_on_count, names.size) + " " +
+                                    names.take(3).joinToString(", ") + if (names.size > 3) ", …" else "",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (names.isEmpty()) Palette.TextDim else Palette.Accent,
                                 maxLines = 2,
@@ -132,14 +136,14 @@ fun KeysScreen(modifier: Modifier = Modifier) {
             ExtendedFloatingActionButton(
                 onClick = { fabMenu = true },
                 icon = { Icon(Icons.Rounded.Add, null) },
-                text = { Text("Kunci") },
+                text = { Text(stringResource(R.string.keys_fab)) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             )
             DropdownMenu(expanded = fabMenu, onDismissRequest = { fabMenu = false }) {
-                DropdownMenuItem(text = { Text("Buat kunci baru") }, leadingIcon = { Icon(Icons.Rounded.VpnKey, null) },
+                DropdownMenuItem(text = { Text(stringResource(R.string.keys_generate_new)) }, leadingIcon = { Icon(Icons.Rounded.VpnKey, null) },
                     onClick = { fabMenu = false; generating = true })
-                DropdownMenuItem(text = { Text("Impor kunci privat") }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) },
+                DropdownMenuItem(text = { Text(stringResource(R.string.keys_import_private)) }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) },
                     onClick = { fabMenu = false; importing = true })
             }
         }
@@ -157,26 +161,27 @@ fun KeysScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun GenerateKeyDialog(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var name by remember { mutableStateOf("Kunci HP") }
+    val defaultName = stringResource(R.string.keys_default_name_phone)
+    var name by remember { mutableStateOf(defaultName) }
     var type by remember { mutableStateOf(KeyManager.GenType.ED25519) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Buat kunci baru") },
+        title = { Text(stringResource(R.string.keys_generate_new)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nama") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Text("Tipe", style = MaterialTheme.typography.labelLarge)
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.keys_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text(stringResource(R.string.keys_type), style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     KeyManager.GenType.entries.forEach { t ->
-                        FilterChip(selected = type == t, onClick = { type = t }, label = { Text(t.label.substringBefore(" (")) })
+                        FilterChip(selected = type == t, onClick = { type = t }, label = { Text(stringResource(t.label).substringBefore(" (")) })
                     }
                 }
                 if (busy) Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text("Membuat kunci…")
+                    Text(stringResource(R.string.keys_generating))
                 }
                 error?.let { Text(it, color = Palette.Danger) }
             }
@@ -196,9 +201,9 @@ private fun GenerateKeyDialog(onDismiss: () -> Unit) {
                         busy = false
                     }
                 }
-            }) { Text("Buat") }
+            }) { Text(stringResource(R.string.keys_generate)) }
         },
-        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.keys_cancel)) } },
     )
 }
 
@@ -206,7 +211,8 @@ private fun GenerateKeyDialog(onDismiss: () -> Unit) {
 private fun ImportKeyDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var name by remember { mutableStateOf("Kunci impor") }
+    val defaultImportName = stringResource(R.string.keys_default_name_import)
+    var name by remember { mutableStateOf(defaultImportName) }
     var pem by remember { mutableStateOf("") }
     var passphrase by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -222,12 +228,12 @@ private fun ImportKeyDialog(onDismiss: () -> Unit) {
     }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Impor kunci privat") },
+        title = { Text(stringResource(R.string.keys_import_private)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nama") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.keys_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
-                    pem, { pem = it }, label = { Text("Tempel kunci privat") },
+                    pem, { pem = it }, label = { Text(stringResource(R.string.keys_paste_private)) },
                     placeholder = { Text("-----BEGIN OPENSSH PRIVATE KEY-----") },
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     minLines = 4, maxLines = 8, modifier = Modifier.fillMaxWidth(),
@@ -235,10 +241,10 @@ private fun ImportKeyDialog(onDismiss: () -> Unit) {
                 OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) {
                     Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Pilih file")
+                    Text(stringResource(R.string.keys_choose_file))
                 }
-                PasswordField(passphrase, { passphrase = it }, "Passphrase (bila ada)")
-                Text("Didukung: OpenSSH, PEM (PKCS#1/#8), PuTTY .ppk", style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                PasswordField(passphrase, { passphrase = it }, stringResource(R.string.keys_passphrase_optional))
+                Text(stringResource(R.string.keys_supported_formats), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
                 error?.let { Text(it, color = Palette.Danger) }
             }
         },
@@ -249,19 +255,19 @@ private fun ImportKeyDialog(onDismiss: () -> Unit) {
                 scope.launch {
                     try {
                         val k = withContext(Dispatchers.Default) {
-                            KeyManager.import(name.trim().ifBlank { "Kunci impor" }, pem, passphrase.ifEmpty { null })
+                            KeyManager.import(name.trim().ifBlank { defaultImportName }, pem, passphrase.ifEmpty { null })
                         }
                         TermXApp.container.vault.saveKey(k)
                         onDismiss()
                     } catch (e: Exception) {
-                        error = "Gagal membaca kunci: ${e.message ?: e.javaClass.simpleName}"
+                        error = S.get(R.string.keys_err_read_key, e.message ?: e.javaClass.simpleName)
                     } finally {
                         busy = false
                     }
                 }
-            }) { Text("Impor") }
+            }) { Text(stringResource(R.string.keys_import)) }
         },
-        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.keys_cancel)) } },
     )
 }
 
@@ -271,6 +277,7 @@ private fun KeyDetail(k: SshKey, hosts: List<Host>, onDeleted: () -> Unit) {
     val scope = rememberCoroutineScope()
     var target by remember { mutableStateOf<Host?>(null) }
     var installMsg by remember { mutableStateOf<String?>(null) }
+    var installErr by remember { mutableStateOf(false) }
     var installing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -286,24 +293,26 @@ private fun KeyDetail(k: SshKey, hosts: List<Host>, onDeleted: () -> Unit) {
                 Text(k.publicKey, fontFamily = Mono, style = MaterialTheme.typography.bodySmall, modifier = Modifier.heightIn(max = 140.dp).verticalScroll(rememberScrollState()))
             }
         }
+        val shareTitle = stringResource(R.string.keys_share_public_key)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { copy(context, k.publicKey) }) {
-                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Salin publik")
+                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.keys_copy_public))
             }
             OutlinedButton(onClick = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, k.publicKey)
-                context.startActivity(Intent.createChooser(send, "Bagikan public key"))
+                context.startActivity(Intent.createChooser(send, shareTitle))
             }) {
-                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Bagikan")
+                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.keys_share))
             }
         }
 
-        Text("Pasang ke server (authorized_keys)", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.keys_install_to_server), style = MaterialTheme.typography.titleSmall)
+        val pickHost = stringResource(R.string.keys_pick_host)
         DropdownField(
-            label = "Host tujuan",
+            label = stringResource(R.string.keys_target_host),
             options = hosts,
             selected = target,
-            display = { it?.let { h -> "${h.label} · ${h.address}" } ?: "Pilih host" },
+            display = { it?.let { h -> "${h.label} · ${h.address}" } ?: pickHost },
             onSelect = { target = it },
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -311,6 +320,7 @@ private fun KeyDetail(k: SshKey, hosts: List<Host>, onDeleted: () -> Unit) {
                 val h = target ?: return@Button
                 installing = true
                 installMsg = null
+                installErr = false
                 scope.launch {
                     installMsg = try {
                         withContext(Dispatchers.IO) {
@@ -326,40 +336,41 @@ private fun KeyDetail(k: SshKey, hosts: List<Host>, onDeleted: () -> Unit) {
                                     TermXApp.container.vault.markKeyInstalled(k.id, h.id)
                                 }
                                 when {
-                                    r.stdout.contains("ADDED") -> "Berhasil dipasang di ${h.label}. Sekarang host bisa diubah ke autentikasi kunci."
-                                    r.stdout.contains("EXISTS") -> "Kunci sudah ada di ${h.label}."
-                                    else -> "Gagal: ${r.stderr.ifBlank { r.stdout }.take(200)}"
+                                    r.stdout.contains("ADDED") -> S.get(R.string.keys_install_added, h.label)
+                                    r.stdout.contains("EXISTS") -> S.get(R.string.keys_install_exists, h.label)
+                                    else -> { installErr = true; S.get(R.string.keys_failed, r.stderr.ifBlank { r.stdout }.take(200)) }
                                 }
                             } finally {
                                 mgr.release(h.id, "install-key")
                             }
                         }
                     } catch (e: Exception) {
-                        "Gagal: ${e.message}"
+                        installErr = true
+                        S.get(R.string.keys_failed, e.message ?: e.javaClass.simpleName)
                     }
                     installing = false
                 }
             }) {
-                Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Pasang")
+                Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.keys_install))
             }
             if (installing) {
                 Spacer(Modifier.width(12.dp))
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             }
         }
-        installMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("Gagal")) Palette.Danger else Palette.Accent) }
+        installMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (installErr) Palette.Danger else Palette.Accent) }
 
         InstalledOnSection(k, hosts)
 
         TextButton(onClick = { confirmDelete = true }) {
-            Icon(Icons.Rounded.Delete, null, tint = Palette.Danger); Spacer(Modifier.width(6.dp)); Text("Hapus kunci", color = Palette.Danger)
+            Icon(Icons.Rounded.Delete, null, tint = Palette.Danger); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.keys_delete_key), color = Palette.Danger)
         }
     }
     if (confirmDelete) {
         ConfirmDialog(
-            title = "Hapus kunci?",
-            message = "Host yang memakai kunci ini akan kembali ke autentikasi password. Kunci privat tidak bisa dipulihkan.",
-            confirmText = "Hapus", danger = true,
+            title = stringResource(R.string.keys_delete_confirm_title),
+            message = stringResource(R.string.keys_delete_confirm_message),
+            confirmText = stringResource(R.string.keys_delete), danger = true,
             onConfirm = { TermXApp.container.vault.deleteKey(k.id); onDeleted() },
             onDismiss = { confirmDelete = false },
         )
@@ -373,6 +384,7 @@ private fun InstalledOnSection(k: SshKey, hosts: List<Host>) {
     val vault = TermXApp.container.vault
     var busy by remember { mutableStateOf<String?>(null) }
     var msg by remember { mutableStateOf<String?>(null) }
+    var msgErr by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<Host?>(null) }
     // Dicocokkan dari tipe + blob kunci (tanpa komentar), jadi kunci yang dipasang manual pun dikenali.
     val line = k.publicKey.replace("'", "").trim().split(Regex("\\s+")).take(2).joinToString(" ")
@@ -390,19 +402,20 @@ private fun InstalledOnSection(k: SshKey, hosts: List<Host>) {
     fun check(h: Host) {
         busy = h.id
         scope.launch {
+            msgErr = false
             msg = try {
                 val out = run(h, "grep -qF '$line' \"\$HOME/.ssh/authorized_keys\" 2>/dev/null && echo YES || echo NO")
-                if (out.contains("YES")) { vault.markKeyInstalled(k.id, h.id); "Masih terpasang di ${h.label}." }
-                else { vault.unmarkKeyInstalled(k.id, h.id); "Tidak ditemukan lagi di ${h.label}; dihapus dari daftar." }
-            } catch (e: Exception) { "Gagal cek ${h.label}: ${e.message}" }
+                if (out.contains("YES")) { vault.markKeyInstalled(k.id, h.id); S.get(R.string.keys_check_still_installed, h.label) }
+                else { vault.unmarkKeyInstalled(k.id, h.id); S.get(R.string.keys_check_not_found, h.label) }
+            } catch (e: Exception) { msgErr = true; S.get(R.string.keys_check_failed, h.label, e.message ?: e.javaClass.simpleName) }
             busy = null
         }
     }
 
-    Text("Terpasang di server", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.keys_installed_on_servers), style = MaterialTheme.typography.titleSmall)
     if (installed.isEmpty()) {
         Text(
-            "Belum tercatat. Daftar ini terisi saat kunci dipasang lewat tombol di atas, atau saat login dengan kunci ini berhasil.",
+            stringResource(R.string.keys_installed_none),
             style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
         )
     }
@@ -413,45 +426,46 @@ private fun InstalledOnSection(k: SshKey, hosts: List<Host>) {
             Column(Modifier.weight(1f)) {
                 Text(h.label, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                 Text(
-                    "${h.address} · ${timeAgo(inst.at)}" + if (h in usedBy) " · dipakai login" else "",
+                    "${h.address} · ${timeAgo(inst.at)}" + if (h in usedBy) " · " + stringResource(R.string.keys_used_for_login) else "",
                     style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 1,
                 )
             }
             if (busy == h.id) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             } else {
-                TextButton(onClick = { check(h) }) { Text("Cek") }
-                TextButton(onClick = { removing = h }) { Text("Lepas", color = Palette.Danger) }
+                TextButton(onClick = { check(h) }) { Text(stringResource(R.string.keys_check)) }
+                TextButton(onClick = { removing = h }) { Text(stringResource(R.string.keys_remove), color = Palette.Danger) }
             }
         }
     }
     val notListed = usedBy.filter { u -> installed.none { it.first.id == u.id } }
     if (notListed.isNotEmpty()) {
         Text(
-            "Dipakai login oleh: " + notListed.joinToString(", ") { it.label } + " (tercatat setelah login berhasil).",
+            stringResource(R.string.keys_used_by_not_listed, notListed.joinToString(", ") { it.label }),
             style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
         )
     }
-    msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("Gagal")) Palette.Danger else Palette.Accent) }
+    msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (msgErr) Palette.Danger else Palette.Accent) }
 
     removing?.let { h ->
         ConfirmDialog(
-            title = "Lepas kunci dari ${h.label}?",
-            message = "Public key ini dihapus dari ~/.ssh/authorized_keys di ${h.label}." +
-                (if (h in usedBy) " Host ini login memakai kunci ini — setelah dilepas, login akan gagal kecuali ada password." else ""),
-            confirmText = "Lepas", danger = true,
+            title = stringResource(R.string.keys_remove_confirm_title, h.label),
+            message = stringResource(R.string.keys_remove_confirm_message, h.label) +
+                (if (h in usedBy) " " + stringResource(R.string.keys_remove_confirm_used) else ""),
+            confirmText = stringResource(R.string.keys_remove), danger = true,
             onConfirm = {
                 busy = h.id
                 scope.launch {
+                    msgErr = false
                     msg = try {
                         val out = run(
                             h,
                             "f=\"\$HOME/.ssh/authorized_keys\"; [ -f \"\$f\" ] || { echo REMOVED; exit 0; }; " +
                                 "grep -vF '$line' \"\$f\" > \"\$f.termx.tmp\"; cat \"\$f.termx.tmp\" > \"\$f\" && rm -f \"\$f.termx.tmp\" && echo REMOVED",
                         )
-                        if (out.contains("REMOVED")) { vault.unmarkKeyInstalled(k.id, h.id); "Kunci dilepas dari ${h.label}." }
-                        else "Gagal melepas dari ${h.label}."
-                    } catch (e: Exception) { "Gagal: ${e.message}" }
+                        if (out.contains("REMOVED")) { vault.unmarkKeyInstalled(k.id, h.id); S.get(R.string.keys_removed_from, h.label) }
+                        else { msgErr = true; S.get(R.string.keys_remove_failed, h.label) }
+                    } catch (e: Exception) { msgErr = true; S.get(R.string.keys_failed, e.message ?: e.javaClass.simpleName) }
                     busy = null
                 }
             },

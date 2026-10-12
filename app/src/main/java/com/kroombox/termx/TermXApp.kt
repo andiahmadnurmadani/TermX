@@ -2,6 +2,7 @@ package com.kroombox.termx
 
 import android.app.Application
 import com.kroombox.termx.data.Vault
+import com.kroombox.termx.i18n.Lang
 import com.kroombox.termx.service.SessionService
 import com.kroombox.termx.ssh.SessionManager
 import kotlinx.coroutines.Dispatchers
@@ -29,8 +30,9 @@ class TermXApp : Application() {
     override fun onCreate() {
         super.onCreate()
         setupCrypto()
-        SessionService.ensureChannel(this)
         container = AppContainer(this)
+        Lang.apply(this, container.vault.current.settings.language)
+        SessionService.ensureChannel(this)
         // Tab yang masih aktif saat proses terakhir dimatikan Android dibuka lagi (attach ke tmux
         // yang sama). Sesi hanya berakhir bila pengguna sendiri menutupnya.
         container.sessions.restoreSessions()

@@ -1,5 +1,8 @@
 package com.kroombox.termx.ui.screens
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,9 +66,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 fun describe(r: ForwardRule): String = when (r.type) {
-    ForwardType.LOCAL -> "HP ${r.bindHost}:${r.bindPort}  →  ${r.destHost}:${r.destPort} (dari server)"
-    ForwardType.REMOTE -> "Server ${r.bindHost}:${r.bindPort}  →  ${r.destHost}:${r.destPort} (dari HP)"
-    ForwardType.DYNAMIC -> "SOCKS5 di HP ${r.bindHost}:${r.bindPort}"
+    ForwardType.LOCAL -> S.get(R.string.fwd_desc_local, "${r.bindHost}:${r.bindPort}", "${r.destHost}:${r.destPort}")
+    ForwardType.REMOTE -> S.get(R.string.fwd_desc_remote, "${r.bindHost}:${r.bindPort}", "${r.destHost}:${r.destPort}")
+    ForwardType.DYNAMIC -> S.get(R.string.fwd_desc_dynamic, "${r.bindHost}:${r.bindPort}")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,15 +86,15 @@ fun ForwardsScreen(nav: Nav, hostFilter: String?) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Port forwarding") },
-                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                title = { Text(stringResource(R.string.fwd_title)) },
+                navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.fwd_back)) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
         floatingActionButton = {
             if (data.hosts.isNotEmpty()) {
                 FloatingActionButton(onClick = { creating = true }, containerColor = MaterialTheme.colorScheme.primary) {
-                    Icon(Icons.Rounded.Add, "Tambah")
+                    Icon(Icons.Rounded.Add, stringResource(R.string.fwd_add))
                 }
             }
         },
@@ -99,8 +102,8 @@ fun ForwardsScreen(nav: Nav, hostFilter: String?) {
         if (rules.isEmpty()) {
             Box(Modifier.padding(pad)) {
                 EmptyState(
-                    Icons.Rounded.SwapHoriz, "Belum ada aturan",
-                    "Teruskan port lokal ke server (mis. database), buka port server ke HP, atau jadikan HP proxy SOCKS5.",
+                    Icons.Rounded.SwapHoriz, stringResource(R.string.fwd_empty_title),
+                    stringResource(R.string.fwd_empty_msg),
                 )
             }
         } else {
@@ -140,7 +143,7 @@ private fun ForwardCard(r: ForwardRule, st: ForwardStatus?, hostLabel: String, o
                 Text(describe(r), style = MonoSmall)
                 st?.error?.let { Text(it, color = Palette.Danger, style = MaterialTheme.typography.bodySmall) }
                 if (running && r.type == ForwardType.DYNAMIC) {
-                    Text("${st?.connections ?: 0} koneksi aktif", style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+                    Text(stringResource(R.string.fwd_active_connections, st?.connections ?: 0), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
                 }
             }
             Switch(checked = running, onCheckedChange = { on ->
@@ -148,15 +151,15 @@ private fun ForwardCard(r: ForwardRule, st: ForwardStatus?, hostLabel: String, o
             })
         }
         Row {
-            TextButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(6.dp)); Text("Edit") }
+            TextButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.fwd_edit)) }
             TextButton(onClick = { confirmDelete = true }) {
-                Icon(Icons.Rounded.Delete, null, tint = Palette.Danger); Spacer(Modifier.width(6.dp)); Text("Hapus", color = Palette.Danger)
+                Icon(Icons.Rounded.Delete, null, tint = Palette.Danger); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.fwd_delete), color = Palette.Danger)
             }
         }
     }
     if (confirmDelete) {
         ConfirmDialog(
-            title = "Hapus aturan?", message = describe(r), confirmText = "Hapus", danger = true,
+            title = stringResource(R.string.fwd_delete_title), message = describe(r), confirmText = stringResource(R.string.fwd_delete), danger = true,
             onConfirm = {
                 mgr.scope.launch(Dispatchers.IO) {
                     mgr.forwards.stop(r.id)
@@ -170,6 +173,7 @@ private fun ForwardCard(r: ForwardRule, st: ForwardStatus?, hostLabel: String, o
 
 @Composable
 private fun ForwardEditor(initial: ForwardRule?, defaultHost: String?, onDismiss: () -> Unit) {
+    val chooseHost = stringResource(R.string.fwd_choose_host)
     val vault = TermXApp.container.vault
     val hosts = vault.current.hosts
     var hostId by remember { mutableStateOf(initial?.hostId ?: defaultHost ?: hosts.firstOrNull()?.id) }
@@ -187,46 +191,46 @@ private fun ForwardEditor(initial: ForwardRule?, defaultHost: String?, onDismiss
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "Aturan baru" else "Edit aturan") },
+        title = { Text(stringResource(if (initial == null) R.string.fwd_new_rule else R.string.fwd_edit_rule)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DropdownField(
-                    label = "Host SSH", options = hosts, selected = hosts.firstOrNull { it.id == hostId },
-                    display = { it?.label ?: "Pilih host" }, onSelect = { hostId = it?.id },
+                    label = stringResource(R.string.fwd_ssh_host), options = hosts, selected = hosts.firstOrNull { it.id == hostId },
+                    display = { it?.label ?: chooseHost }, onSelect = { hostId = it?.id },
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(type == ForwardType.LOCAL, { type = ForwardType.LOCAL }, { Text("Lokal") })
+                    FilterChip(type == ForwardType.LOCAL, { type = ForwardType.LOCAL }, { Text(stringResource(R.string.fwd_type_local)) })
                     FilterChip(type == ForwardType.REMOTE, { type = ForwardType.REMOTE }, { Text("Remote") })
                     FilterChip(type == ForwardType.DYNAMIC, { type = ForwardType.DYNAMIC }, { Text("SOCKS") })
                 }
                 Text(
                     when (type) {
-                        ForwardType.LOCAL -> "Buka port di HP yang diteruskan ke alamat tujuan lewat server (seperti ssh -L)."
-                        ForwardType.REMOTE -> "Buka port di server yang diteruskan ke alamat tujuan dari HP (seperti ssh -R)."
-                        ForwardType.DYNAMIC -> "Proxy SOCKS5 di HP; semua koneksi keluar lewat server (seperti ssh -D)."
+                        ForwardType.LOCAL -> stringResource(R.string.fwd_help_local)
+                        ForwardType.REMOTE -> stringResource(R.string.fwd_help_remote)
+                        ForwardType.DYNAMIC -> stringResource(R.string.fwd_help_dynamic)
                     },
                     style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                 )
-                OutlinedTextField(label, { label = it }, label = { Text("Nama (opsional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(label, { label = it }, label = { Text(stringResource(R.string.fwd_name_optional)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row {
-                    OutlinedTextField(bindHost, { bindHost = it.trim() }, label = { Text(if (type == ForwardType.REMOTE) "Bind di server" else "Bind di HP") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(bindHost, { bindHost = it.trim() }, label = { Text(stringResource(if (type == ForwardType.REMOTE) R.string.fwd_bind_server else R.string.fwd_bind_phone)) }, singleLine = true, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
                     OutlinedTextField(bindPort, { bindPort = it.filter(Char::isDigit).take(5) }, label = { Text("Port") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.width(96.dp))
                 }
                 if (type != ForwardType.DYNAMIC) {
                     Row {
-                        OutlinedTextField(destHost, { destHost = it.trim() }, label = { Text("Host tujuan") }, singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(destHost, { destHost = it.trim() }, label = { Text(stringResource(R.string.fwd_dest_host)) }, singleLine = true, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))
                         OutlinedTextField(destPort, { destPort = it.filter(Char::isDigit).take(5) }, label = { Text("Port") }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.width(96.dp))
                     }
                 }
                 if (bp != null && bp < 1024 && type != ForwardType.REMOTE) {
-                    Text("Port di bawah 1024 tidak bisa dibuka di Android tanpa root.", color = Palette.Warn, style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.fwd_low_port_warning), color = Palette.Warn, style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(2.dp))
-                LabeledSwitch("Mulai otomatis", "Aktif saat aplikasi dibuka", autoStart) { autoStart = it }
+                LabeledSwitch(stringResource(R.string.fwd_autostart), stringResource(R.string.fwd_autostart_desc), autoStart) { autoStart = it }
             }
         },
         confirmButton = {
@@ -240,8 +244,8 @@ private fun ForwardEditor(initial: ForwardRule?, defaultHost: String?, onDismiss
                     ),
                 )
                 onDismiss()
-            }) { Text("Simpan") }
+            }) { Text(stringResource(R.string.fwd_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.fwd_cancel)) } },
     )
 }

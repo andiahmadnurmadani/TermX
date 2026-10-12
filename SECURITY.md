@@ -1,14 +1,19 @@
-# Kebijakan keamanan
+# Security Policy
 
-TermX menyimpan password dan kunci SSH di perangkat (AES-256-GCM dengan Android Keystore) dan tidak pernah
-mengirimnya ke server selain host SSH tujuan.
+TermX stores passwords and SSH keys on the device only (AES-256-GCM with Android Keystore) and never sends them
+anywhere other than the SSH host you connect to.
 
-## Melaporkan celah keamanan
+## Reporting a vulnerability
 
-Jangan laporkan celah keamanan lewat issue publik. Gunakan **Security → Report a vulnerability** (private
-vulnerability reporting) di repo ini. Sertakan versi TermX, versi Android, langkah reproduksi, dan dampaknya.
-Laporan akan ditanggapi secepatnya dan diperbaiki di rilis berikutnya.
+Please do not report security issues in public issues. Use **Security → Report a vulnerability** (private
+vulnerability reporting) in this repository. Include the TermX version, Android version, reproduction steps, and the
+impact. Reports are answered as soon as possible and fixed in the next release.
 
-## Versi yang didukung
+## Supported versions
 
-Hanya rilis terbaru di halaman [Releases](../../releases) yang menerima perbaikan keamanan.
+Only the latest release on the [Releases](../../releases) page receives security fixes.
+
+---
+
+*Bahasa Indonesia:* laporkan celah keamanan secara privat lewat **Security → Report a vulnerability**, bukan lewat
+issue publik. Hanya rilis terbaru yang menerima perbaikan keamanan.

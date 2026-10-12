@@ -1,5 +1,8 @@
 package com.kroombox.termx.ssh
 
+import com.kroombox.termx.i18n.S
+import com.kroombox.termx.R
+
 /** Utilitas tmux: membangun perintah attach dan mengelola sesi di server. */
 object Tmux {
     data class RemoteSession(
@@ -32,7 +35,7 @@ object Tmux {
         val script = "$PATH_FIX if command -v tmux >/dev/null 2>&1; then " +
             "tmux has-session -t $n 2>/dev/null || { tmux start-server \\; set-option -gq history-limit 50000; tmux new-session -d -s $n$sendStartup; }; " +
             "exec tmux attach-session -t $n$mouseOpt; " +
-            "else echo \"[tmux tidak ditemukan di server - memakai shell biasa (sesi tidak persisten)]\"; " +
+            "else echo \"[tmux not found on the server - using a plain shell (session is not persistent)]\"; " +
             "exec \"\${SHELL:-/bin/sh}\" -l; fi"
         return "sh -c '$script'"
     }
@@ -58,5 +61,5 @@ object Tmux {
     fun killCommand(sessionName: String) = "$PATH_FIX tmux kill-session -t '${sanitize(sessionName)}'"
 
     fun installHint(): String =
-        "Pasang tmux di server agar sesi tetap hidup: sudo apt install tmux  |  sudo dnf install tmux  |  brew install tmux"
+        S.get(R.string.ssh_tmux_install_hint)
 }
