@@ -71,4 +71,12 @@ class AutocompleteTest {
         assertFalse(Sudo.invokesSu("cat summary.txt"))
         assertFalse(Sudo.invokesSu("echo sum"))
     }
+
+    @Test fun suPromptIsStrict() {
+        assertTrue(Sudo.isSuPrompt("$ su -\r\nPassword: "))
+        assertTrue(Sudo.isSuPrompt("su\r\nKata sandi:"))
+        assertFalse(Sudo.isSuPrompt("[sudo] password for andi: "))
+        assertFalse(Sudo.isSuPrompt("Enter password for vault: "))
+        assertFalse(Sudo.isSuPrompt("cat notes.txt\r\nPassword: hunter2\r\n$ "))
+    }
 }

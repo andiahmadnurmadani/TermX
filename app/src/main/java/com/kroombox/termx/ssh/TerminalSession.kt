@@ -308,7 +308,7 @@ class TerminalSession(
         // atau snippet sudo) DAN prompt-nya prompt sudo untuk user host ini. Teks yang mirip prompt dari
         // program lain (cat file, skrip, server) tidak pernah memicu pengetikan password.
         // `su` yang baru dijalankan pengguna: isi password login (= password root) sekali.
-        if (suArmedUntil != 0L && now <= suArmedUntil && now > autofillPausedUntil && !Sudo.isSudoPromptFor(tail, "")) {
+        if (suArmedUntil != 0L && now <= suArmedUntil && now > autofillPausedUntil && Sudo.isSuPrompt(tail)) {
             suArmedUntil = 0L
             val pw = manager.loginPassword(host.id)
             if (pw != null) {

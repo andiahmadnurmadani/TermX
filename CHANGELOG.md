@@ -3,6 +3,12 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.8.2] - 2026-10-12
+
+### Security
+- `su` password autofill now requires the exact `Password:` prompt that `su` prints (after you ran `su` yourself);
+  other password prompts are never filled automatically.
+
 ## [0.8.1] - 2026-10-12
 
 ### Added

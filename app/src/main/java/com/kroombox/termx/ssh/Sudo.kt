@@ -66,6 +66,14 @@ object Sudo {
 
     private val INVOKES_SU = Regex("(^|[;&|(]\\s*|\\bexec\\s+)su(\\s|$)")
 
+    private val SU_PROMPT = Regex("^\\s*(password|kata sandi)\\s*:\\s*$", RegexOption.IGNORE_CASE)
+
+    /** Prompt milik `su`: baris terakhir persis `Password:` (atau `Kata sandi:`), bukan prompt lain. */
+    fun isSuPrompt(tail: String): Boolean {
+        val last = stripAnsi(tail).replace("\r", "").trimEnd(' ').lines().lastOrNull { it.isNotBlank() } ?: return false
+        return SU_PROMPT.matches(last.trimEnd())
+    }
+
     /** Baris perintah yang menjalankan `su` (mis. `su`, `su -`, `su - root`). */
     fun invokesSu(line: String): Boolean = INVOKES_SU.containsMatchIn(line.trim())
 
