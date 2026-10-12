@@ -3,6 +3,19 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.6.1] - 2026-10-12
+
+### Diubah
+- Tata letak terminal ala Termius: tanpa bar atas; di bawah ada **‹** kembali, pil sesi aktif (ikon host, nama,
+  **✕** tutup sesi ini, ketuk untuk daftar sesi), **+** sesi baru, dan tombol **keyboard** (tampil/sembunyi).
+- Baris tombol: ikon **snippet**, **password sudo**, **menu** (⋯), dan **file (SFTP)**, lalu `esc` `tab` `shift+tab`
+  `ctrl` `alt` dan panah. Tombol baru `STAB` (shift+tab) bisa dipakai di susunan sendiri.
+
+### Diperbaiki
+- **Koneksi tidak lagi diputus saat jaringan berganti.** Sebelumnya setiap pergantian jaringan (termasuk VPN seperti
+  Tailscale yang alamatnya tetap) memutus semua koneksi. Kini setiap koneksi diperiksa dulu dengan keepalive SSH;
+  hanya yang tidak membalas dalam 8 detik yang disambung ulang.
+
 ## [0.6.0] - 2026-10-12
 
 ### Ditambahkan

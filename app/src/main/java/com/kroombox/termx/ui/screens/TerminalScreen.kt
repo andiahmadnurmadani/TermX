@@ -1,5 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.rounded.Edit
@@ -162,14 +169,8 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             .navigationBarsPadding()
             .imePadding(),
     ) {
-        TerminalTopBar(
-            sessions = sessions,
-            current = current,
-            onBack = { nav.back() },
-            onOpenSessions = { switcherTab = 0; showSwitcher = true },
-            onNewSession = { switcherTab = 1; showSwitcher = true },
-            onCloseSession = { mgr.closeTerminal(current.id) },
-            menu = { dismiss ->
+        // Menu aksi terminal (dibuka dari tombol ⋯ di baris tombol bawah).
+        val terminalMenu: @Composable (dismiss: () -> Unit) -> Unit = { dismiss ->
                 val view = viewHolder[0]
                 DropdownMenuItem(text = { Text("Snippet") }, leadingIcon = { Icon(Icons.Rounded.Bolt, null, tint = Palette.Warn) }, onClick = {
                     dismiss(); showSnippets = true
@@ -244,8 +245,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                         onClick = { dismiss(); confirmKill = current },
                     )
                 }
-            },
-        )
+        }
 
         StatusBanner(current)
 
@@ -335,18 +335,36 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             }
         }
 
+        // Kontrol ala Termius di bawah: kembali, sesi aktif (✕ tutup), + sesi baru, keyboard.
+        val imeVisible = WindowInsets.isImeVisible
+        TerminalControls(
+            sessions = sessions,
+            current = current,
+            onBack = { nav.back() },
+            onOpenSessions = { switcherTab = 0; showSwitcher = true },
+            onCloseSession = { mgr.closeTerminal(current.id) },
+            onNewSession = { switcherTab = 1; showSwitcher = true },
+            onKeyboard = { viewHolder[0]?.let { v -> if (imeVisible) v.hideKeyboard() else v.showKeyboard() } },
+        )
+        var moreOpen by remember { mutableStateOf(false) }
         ExtraKeysBar(
             layout = settings.extraKeys,
             stickyMods = stickyMods,
             onToggleMod = { m -> stickyMods = stickyMods xor m },
             onKey = { k -> viewHolder[0]?.sendKey(k) },
             onText = { t -> viewHolder[0]?.sendText(t) },
-            onKeyboard = {
-                val v = viewHolder[0]
-                if (v != null) v.showKeyboard()
-            },
             onPaste = { clipboardText(context)?.let { viewHolder[0]?.paste(it) } },
-            onSnippets = { showSnippets = true },
+            leading = {
+                ActionKey(Icons.Rounded.AutoAwesome, "Snippet") { showSnippets = true }
+                ActionKey(Icons.Rounded.Key, "Ketik password sudo") {
+                    uiScope.launch { if (!current.typeSudoPassword()) Toast.makeText(context, "Password sudo dibatalkan", Toast.LENGTH_SHORT).show() }
+                }
+                Box {
+                    ActionKey(Icons.Rounded.MoreHoriz, "Menu") { moreOpen = true }
+                    DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) { terminalMenu { moreOpen = false } }
+                }
+                ActionKey(Icons.Rounded.AttachFile, "File (SFTP)") { nav.sftp(current.host.id) }
+            },
         )
     }
 
@@ -418,61 +436,74 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
 }
 
 /**
- * Bar atas ala Termius: sesi yang sedang dibuka (ikon host, nama, mode, status) — ketuk untuk membuka
- * panel Sesi (pindah sesi, sesi baru, tmux di server) — plus jumlah sesi aktif, snippet, dan menu.
+ * Kontrol bawah ala Termius: ‹ kembali, pil sesi aktif (ketuk = daftar sesi, ✕ = tutup sesi ini),
+ * + sesi baru, dan tombol keyboard.
  */
 @Composable
-private fun TerminalTopBar(
+private fun TerminalControls(
     sessions: List<TerminalSession>,
     current: TerminalSession,
     onBack: () -> Unit,
     onOpenSessions: () -> Unit,
-    onNewSession: () -> Unit,
     onCloseSession: () -> Unit,
-    menu: @Composable (dismiss: () -> Unit) -> Unit,
+    onNewSession: () -> Unit,
+    onKeyboard: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     val state by current.state.collectAsState()
-    val title by current.title.collectAsState()
     val host = TermXApp.container.vault.host(current.host.id) ?: current.host
     Row(
-        Modifier.fillMaxWidth().background(Palette.Surface).padding(horizontal = 4.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().background(Palette.Bg).padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") }
-        Row(
-            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpenSessions)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        ControlSquare(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali", tint = Palette.Accent) }
+        Surface(
+            color = Palette.Accent.copy(alpha = 0.14f),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onOpenSessions),
         ) {
-            Box {
-                HostAvatar(host, size = 32.dp)
-                Box(Modifier.align(Alignment.BottomEnd)) { StatusDot(stateColor(state), 9.dp) }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f, fill = false)) {
-                Text(host.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    (current.tmuxName?.let { "tmux: $it" } ?: "Terminal") + " · " +
-                        (if (state == SessionState.CONNECTED && title.isNotBlank() && title != host.label) title else stateLabel(state)),
-                    style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (sessions.size > 1) {
-                Spacer(Modifier.width(6.dp))
-                Badge(containerColor = Palette.Accent, contentColor = Palette.Bg) { Text("${sessions.size}") }
-            }
-            Icon(Icons.Rounded.ExpandMore, "Semua sesi", tint = Palette.TextDim)
-        }
-        IconButton(onClick = onNewSession) { Icon(Icons.Rounded.Add, "Sesi baru", tint = Palette.Accent) }
-        IconButton(onClick = onCloseSession) { Icon(Icons.Rounded.Close, "Tutup sesi ini") }
-        Box {
-            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                menu { menuOpen = false }
+            Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    SpecAvatar(host.icon, host.label, Palette.Accent, size = 26.dp, osId = host.osId)
+                    Box(Modifier.align(Alignment.BottomEnd)) { StatusDot(stateColor(state), 8.dp) }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(host.label, style = MaterialTheme.typography.titleSmall, color = Palette.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (current.tmuxName != null || state != SessionState.CONNECTED || sessions.size > 1) {
+                        Text(
+                            listOfNotNull(
+                                current.tmuxName?.let { "tmux: $it" },
+                                if (state != SessionState.CONNECTED) stateLabel(state) else null,
+                                if (sessions.size > 1) "${sessions.size} sesi" else null,
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                IconButton(onClick = onCloseSession) { Icon(Icons.Rounded.Close, "Tutup sesi ini", tint = Palette.Accent) }
             }
         }
+        ControlSquare(onClick = onNewSession) { Icon(Icons.Rounded.Add, "Sesi baru", tint = Palette.Accent) }
+        ControlSquare(onClick = onKeyboard) { Icon(Icons.Rounded.Keyboard, "Keyboard", tint = Palette.Accent) }
     }
+}
+
+@Composable
+private fun ControlSquare(onClick: () -> Unit, content: @Composable () -> Unit) {
+    Surface(
+        color = Palette.SurfaceHigh, shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
+    ) { Box(contentAlignment = Alignment.Center) { content() } }
+}
+
+/** Ikon aksi di baris tombol (snippet, password, menu, file). */
+@Composable
+private fun ActionKey(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, tint = Palette.Accent, modifier = Modifier.size(22.dp)) }
 }
 
 /** Satu saran: bagian yang sudah diketik redup, sisanya terang. */
@@ -564,19 +595,20 @@ private fun parseExtraKeys(layout: String): List<ExtraKey> {
         .ifEmpty { AppSettings.DEFAULT_EXTRA_KEYS.split(' ') }
     return tokens.map { t ->
         when (t.uppercase()) {
-            "ESC" -> ExtraKey.Key("ESC", TermKey.ESC)
-            "TAB" -> ExtraKey.Key("TAB", TermKey.TAB)
-            "CTRL" -> ExtraKey.Mod("CTRL", Mods.CTRL)
-            "ALT" -> ExtraKey.Mod("ALT", Mods.ALT)
-            "SHIFT" -> ExtraKey.Mod("SHIFT", Mods.SHIFT)
+            "ESC" -> ExtraKey.Key("esc", TermKey.ESC)
+            "TAB" -> ExtraKey.Key("tab", TermKey.TAB)
+            "STAB" -> ExtraKey.Txt("shift+tab", "\u001b[Z")
+            "CTRL" -> ExtraKey.Mod("ctrl", Mods.CTRL)
+            "ALT" -> ExtraKey.Mod("alt", Mods.ALT)
+            "SHIFT" -> ExtraKey.Mod("shift", Mods.SHIFT)
             "UP" -> ExtraKey.Key("↑", TermKey.UP)
             "DOWN" -> ExtraKey.Key("↓", TermKey.DOWN)
             "LEFT" -> ExtraKey.Key("←", TermKey.LEFT)
             "RIGHT" -> ExtraKey.Key("→", TermKey.RIGHT)
-            "HOME" -> ExtraKey.Key("HOME", TermKey.HOME)
-            "END" -> ExtraKey.Key("END", TermKey.END)
-            "PGUP" -> ExtraKey.Key("PGUP", TermKey.PAGE_UP)
-            "PGDN" -> ExtraKey.Key("PGDN", TermKey.PAGE_DOWN)
+            "HOME" -> ExtraKey.Key("home", TermKey.HOME)
+            "END" -> ExtraKey.Key("end", TermKey.END)
+            "PGUP" -> ExtraKey.Key("pgup", TermKey.PAGE_UP)
+            "PGDN" -> ExtraKey.Key("pgdn", TermKey.PAGE_DOWN)
             "INS" -> ExtraKey.Key("INS", TermKey.INSERT)
             "DEL" -> ExtraKey.Key("DEL", TermKey.DELETE)
             "ENTER" -> ExtraKey.Key("⏎", TermKey.ENTER)
@@ -606,19 +638,16 @@ private fun ExtraKeysBar(
     onToggleMod: (Int) -> Unit,
     onKey: (TermKey) -> Unit,
     onText: (String) -> Unit,
-    onKeyboard: () -> Unit,
     onPaste: () -> Unit,
-    onSnippets: () -> Unit,
+    leading: @Composable () -> Unit,
 ) {
     val keys = remember(layout) { parseExtraKeys(layout) }
     Row(
         Modifier.fillMaxWidth().background(Palette.Surface).padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        KeyButton(icon = true, label = "", active = false, onClick = onKeyboard)
-        Spacer(Modifier.width(4.dp))
-        KeyButton(label = "⚡", onClick = onSnippets)
-        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            leading()
             keys.forEach { k ->
                 when (k) {
                     is ExtraKey.Key -> KeyButton(label = k.label, onClick = { onKey(k.key) })
@@ -634,8 +663,8 @@ private fun ExtraKeysBar(
 @Composable
 private fun KeyButton(label: String, active: Boolean = false, icon: Boolean = false, onClick: () -> Unit) {
     Surface(
-        color = if (active) MaterialTheme.colorScheme.primary else Palette.SurfaceHigh,
-        contentColor = if (active) MaterialTheme.colorScheme.onPrimary else Palette.Text,
+        color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+        contentColor = if (active) MaterialTheme.colorScheme.onPrimary else Palette.Accent,
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.heightIn(min = 40.dp).widthIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick),
     ) {

@@ -226,6 +226,23 @@ class SshConnection(
         }
     }
 
+    /**
+     * Apakah koneksi masih benar-benar hidup? Mengirim keepalive@openssh.com dan menunggu balasan.
+     * Balasan "gagal" dari server tetap berarti koneksi hidup; hanya tanpa balasan (timeout) yang mati.
+     */
+    fun probe(timeoutSec: Long = 8): Boolean {
+        val c = client ?: return false
+        if (!c.isConnected) return false
+        return try {
+            c.connection.sendGlobalRequest("keepalive@openssh.com", true, ByteArray(0)).retrieve(timeoutSec, TimeUnit.SECONDS)
+            true
+        } catch (e: Exception) {
+            val chain = generateSequence(e as Throwable) { it.cause }.toList()
+            val timedOut = chain.any { it is java.util.concurrent.TimeoutException || it.message?.contains("timeout", ignoreCase = true) == true }
+            !timedOut && c.isConnected
+        }
+    }
+
     fun close() {
         resetSftp()
         val c = client

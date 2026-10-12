@@ -54,14 +54,22 @@ class Vault(context: Context) {
      * tmux lama dikembalikan ke terminal biasa (tmux tetap bisa dipilih dari menu).
      */
     private fun migrate(d: VaultData): VaultData {
-        if (d.version >= 2) return d
-        val m = d.copy(
-            version = 2,
-            hosts = d.hosts.map { it.copy(persistentSession = false) },
-            settings = d.settings.copy(defaultPersistent = false),
-        )
-        scope.launch { persistNow(m) }
-        return m
+        if (d.version >= 3) return d
+        var m = d
+        if (m.version < 2) {
+            m = m.copy(
+                hosts = m.hosts.map { it.copy(persistentSession = false) },
+                settings = m.settings.copy(defaultPersistent = false),
+            )
+        }
+        // v3: susunan tombol tambahan default lama diganti susunan baru (yang sudah diubah pengguna dibiarkan).
+        if (m.settings.extraKeys == AppSettings.OLD_DEFAULT_EXTRA_KEYS) {
+            m = m.copy(settings = m.settings.copy(extraKeys = AppSettings.DEFAULT_EXTRA_KEYS))
+        }
+        m = m.copy(version = 3)
+        val out = m
+        scope.launch { persistNow(out) }
+        return out
     }
 
     private suspend fun persistNow(d: VaultData) {

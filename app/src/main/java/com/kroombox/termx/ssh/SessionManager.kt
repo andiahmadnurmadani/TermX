@@ -379,11 +379,14 @@ class SessionManager(private val context: Context, val vault: Vault) {
                     lastNetwork = network
                     networkLost = false
                     if (changed) {
-                        // Jaringan berganti (Wi-Fi <-> data, atau kembali setelah hilang): socket lama
-                        // sudah mati walau belum terdeteksi. Tutup sekarang agar sesi langsung tersambung
-                        // ulang; tmux di server tetap memegang semua proses.
+                        // Jaringan berganti (Wi-Fi <-> data, VPN tersambung ulang, atau kembali setelah hilang).
+                        // Koneksi TIDAK diputus begitu saja: lewat VPN seperti Tailscale alamatnya tetap sama
+                        // dan koneksi TCP masih hidup. Setiap koneksi diperiksa; hanya yang tidak membalas
+                        // dalam 8 detik yang ditutup lalu tersambung ulang.
                         val all = synchronized(connections) { connections.values.toList() }
-                        scope.launch(Dispatchers.IO) { all.forEach { runCatching { it.close() } } }
+                        all.forEach { conn ->
+                            scope.launch(Dispatchers.IO) { if (!conn.probe(8)) runCatching { conn.close() } }
+                        }
                     }
                     // Jaringan kembali / berganti: percepat sambung ulang.
                     _sessions.value.filter { it.state.value == SessionState.RECONNECTING }.forEach { it.reconnectNow() }

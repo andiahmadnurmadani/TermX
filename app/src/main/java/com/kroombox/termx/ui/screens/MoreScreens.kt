@@ -244,7 +244,7 @@ fun SettingsScreen(nav: Nav) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Pisahkan dengan spasi. Khusus: ESC TAB CTRL ALT SHIFT UP DOWN LEFT RIGHT HOME END PGUP PGDN INS DEL ENTER BKSP PASTE F1–F12. Lainnya dikirim apa adanya.",
+                    "Pisahkan dengan spasi. Khusus: ESC TAB STAB (shift+tab) CTRL ALT SHIFT UP DOWN LEFT RIGHT HOME END PGUP PGDN INS DEL ENTER BKSP PASTE F1–F12. Lainnya dikirim apa adanya.",
                     style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                 )
                 TextButton(onClick = { extraKeys = AppSettings.DEFAULT_EXTRA_KEYS }) { Text("Kembalikan default") }

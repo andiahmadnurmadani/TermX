@@ -153,7 +153,8 @@ data class AppSettings(
     val extraKeys: String = DEFAULT_EXTRA_KEYS,
 ) {
     companion object {
-        const val DEFAULT_EXTRA_KEYS = "ESC TAB CTRL ALT / - | ~ UP DOWN LEFT RIGHT HOME END PGUP PGDN"
+        const val DEFAULT_EXTRA_KEYS = "ESC TAB STAB CTRL ALT LEFT UP DOWN RIGHT / - | ~ HOME END PGUP PGDN"
+        const val OLD_DEFAULT_EXTRA_KEYS = "ESC TAB CTRL ALT / - | ~ UP DOWN LEFT RIGHT HOME END PGUP PGDN"
     }
 }
 
@@ -168,8 +169,8 @@ data class CustomFont(
 
 @Serializable
 data class VaultData(
-    /** 2: ketuk host = terminal biasa (tmux jadi pilihan). */
-    val version: Int = 2,
+    /** 2: ketuk host = terminal biasa (tmux jadi pilihan). 3: tombol tambahan ala Termius. */
+    val version: Int = 3,
     val hosts: List<Host> = emptyList(),
     val groups: List<HostGroup> = emptyList(),
     val keys: List<SshKey> = emptyList(),
