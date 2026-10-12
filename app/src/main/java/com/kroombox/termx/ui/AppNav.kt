@@ -258,7 +258,14 @@ private fun HomeScaffold(nav: Nav) {
                                 Icon(t.icon, stringResource(t.label))
                             }
                         },
-                        label = { Text(stringResource(t.label)) },
+                        // Satu baris, agar label yang lebih panjang (mis. bahasa Inggris) tidak turun ke baris
+                        // kedua dan mengubah tinggi bar navigasi.
+                        label = {
+                            Text(
+                                stringResource(t.label), maxLines = 1, softWrap = false,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                        },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             indicatorColor = MaterialTheme.colorScheme.primaryContainer,

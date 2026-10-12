@@ -3,6 +3,12 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.8.3] - 2026-10-12
+
+### Fixed
+- The bottom navigation bar looks like before again: tab labels stay on one line, and the language is applied as a
+  locale-only override, so screen size, density, font scale, and night mode keep following the system.
+
 ## [0.8.2] - 2026-10-12
 
 ### Security

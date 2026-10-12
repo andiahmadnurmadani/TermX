@@ -18,8 +18,17 @@ class MainActivity : ComponentActivity() {
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun attachBaseContext(newBase: android.content.Context) {
-        // Bahasa pilihan pengguna (default English) berlaku untuk seluruh UI.
-        super.attachBaseContext(com.kroombox.termx.i18n.Lang.wrap(newBase, TermXApp.container.vault.current.settings.language))
+        super.attachBaseContext(newBase)
+        // Bahasa pilihan pengguna (default English). Hanya locale yang ditimpa; ukuran layar, kepadatan,
+        // skala huruf, dan mode malam tetap mengikuti sistem (menyalin seluruh konfigurasi membekukannya
+        // dan mengubah tampilan, mis. bar navigasi).
+        val loc = com.kroombox.termx.i18n.Lang.locale(TermXApp.container.vault.current.settings.language)
+        applyOverrideConfiguration(
+            android.content.res.Configuration().apply {
+                setLocale(loc)
+                setLocales(android.os.LocaleList(loc))
+            },
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
