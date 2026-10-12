@@ -183,9 +183,14 @@ data class VaultData(
      * dibuka lagi otomatis (dan attach ke tmux yang sama) sampai pengguna sendiri memutuskannya.
      */
     val openSessions: List<SavedSession> = emptyList(),
+    /** Sesi SFTP yang masih terbuka (dipulihkan seperti tab terminal). */
+    val openSftp: List<SavedSftp> = emptyList(),
     /** Tab yang baru ditutup (terbaru dulu), untuk dibuka lagi dari tab Sesi beserta riwayatnya. */
     val recentSessions: List<SavedSession> = emptyList(),
 )
+
+@Serializable
+data class SavedSftp(val id: String, val hostId: String, val path: String = "")
 
 @Serializable
 data class SavedSession(

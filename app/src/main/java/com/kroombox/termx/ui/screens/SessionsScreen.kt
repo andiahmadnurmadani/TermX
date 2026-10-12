@@ -54,6 +54,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun SessionsScreen(nav: Nav, modifier: Modifier = Modifier) {
     val sessions by TermXApp.container.sessions.sessions.collectAsState()
+    val sftps by TermXApp.container.sessions.sftpSessions.collectAsState()
+    val total = sessions.size + sftps.size
     LazyColumn(
         modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
@@ -62,11 +64,11 @@ fun SessionsScreen(nav: Nav, modifier: Modifier = Modifier) {
         item {
             Text("Sesi", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
             Text(
-                if (sessions.isEmpty()) "Tidak ada sesi yang tersambung." else "${sessions.size} sesi tersambung. Ketuk untuk masuk.",
+                if (total == 0) "Tidak ada sesi yang tersambung." else "$total sesi tersambung. Ketuk untuk masuk.",
                 style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim,
             )
         }
-        if (sessions.isEmpty()) {
+        if (total == 0) {
             item {
                 Box(Modifier.height(380.dp)) {
                     EmptyState(Icons.Rounded.Terminal, "Belum ada sesi", "Ketuk host di tab Host untuk membuka terminal.")
@@ -74,6 +76,7 @@ fun SessionsScreen(nav: Nav, modifier: Modifier = Modifier) {
             }
         }
         items(sessions, key = { it.id }) { s -> SessionCard(s, nav) }
+        items(sftps, key = { "sftp-" + it.id }) { s -> SftpCard(s, nav) }
     }
 }
 
@@ -125,6 +128,44 @@ private fun SessionCard(s: TerminalSession, nav: Nav) {
                     fontFamily = FontFamily.Monospace, fontSize = 10.sp, lineHeight = 13.sp,
                     maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
                 )
+            }
+        }
+    }
+}
+
+/** Kartu sesi SFTP: folder yang sedang dibuka dan beberapa isinya. */
+@Composable
+private fun SftpCard(s: com.kroombox.termx.ssh.SessionManager.SftpSession, nav: Nav) {
+    val data by TermXApp.container.vault.data.collectAsState()
+    val host = data.hosts.firstOrNull { it.id == s.hostId } ?: return
+    AppCard(onClick = { nav.sftp(s.hostId, s.path.ifEmpty { null }, s.id) }, contentPadding = PaddingValues(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box {
+                HostAvatar(host, size = 38.dp)
+                Box(Modifier.align(Alignment.BottomEnd)) { StatusDot(Palette.Blue, 10.dp) }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(host.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "SFTP · " + s.path.ifEmpty { "~" },
+                    style = MaterialTheme.typography.bodySmall, color = Palette.Blue, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = { TermXApp.container.sessions.closeSftp(s.id) }) {
+                Icon(Icons.Rounded.Close, "Tutup sesi SFTP", tint = Palette.TextDim)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Column(
+            Modifier.fillMaxWidth().height(132.dp).clip(RoundedCornerShape(10.dp))
+                .background(Palette.Bg).padding(horizontal = 10.dp, vertical = 8.dp),
+        ) {
+            if (s.preview.isEmpty()) {
+                Text("Membuka folder…", color = Palette.TextDim, fontSize = 11.sp)
+            }
+            s.preview.forEach { l ->
+                Text(l, color = Palette.Text.copy(alpha = 0.85f), fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

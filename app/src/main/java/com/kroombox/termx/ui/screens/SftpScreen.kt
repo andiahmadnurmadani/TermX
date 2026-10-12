@@ -1,5 +1,6 @@
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.material.icons.rounded.Close
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -341,7 +342,7 @@ fun permString(mask: Int): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SftpScreen(nav: Nav, hostId: String, initialPath: String?) {
+fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val host = remember(hostId) { TermXApp.container.vault.host(hostId) }
@@ -355,6 +356,13 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?) {
     // Folder terakhir disimpan, agar kembali dari editor tidak melompat ke folder awal.
     var lastPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialPath) }
     LaunchedEffect(ctl.path) { if (ctl.path.isNotEmpty()) lastPath = ctl.path }
+    // Sesi SFTP di tab Sesi ikut diperbarui: folder sekarang + beberapa entrinya untuk pratinjau.
+    LaunchedEffect(ctl.path, ctl.entries) {
+        if (sessionId != null && ctl.path.isNotEmpty()) {
+            val preview = ctl.entries.filterNot { it.name.startsWith(".") }.take(8).map { (if (it.isDir) "📁 " else "📄 ") + it.name }
+            TermXApp.container.sessions.updateSftp(sessionId, ctl.path, preview)
+        }
+    }
 
     LaunchedEffect(hostId) { ctl.open(lastPath) }
     DisposableEffect(hostId) { onDispose { ctl.close() } }
@@ -382,6 +390,11 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?) {
                 },
                 navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
                 actions = {
+                    if (sessionId != null) {
+                        IconButton(onClick = { TermXApp.container.sessions.closeSftp(sessionId); nav.back() }) {
+                            Icon(Icons.Rounded.Close, "Tutup sesi SFTP")
+                        }
+                    }
                     IconButton(onClick = { ctl.up() }) { Icon(Icons.Rounded.ArrowUpward, "Naik") }
                     IconButton(onClick = { ctl.refresh() }) { Icon(Icons.Rounded.Refresh, "Segarkan") }
                     IconButton(onClick = { newFile = true }) { Icon(Icons.AutoMirrored.Rounded.NoteAdd, "File baru") }

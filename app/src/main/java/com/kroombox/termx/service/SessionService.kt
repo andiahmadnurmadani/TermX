@@ -149,6 +149,8 @@ class SessionService : Service() {
         if (connected > 0) parts += "$connected sesi aktif"
         if (reconnecting > 0) parts += "$reconnecting menyambung ulang"
         if (fwd > 0) parts += "$fwd port forward"
+        val sftpCount = mgr.sftpSessions.value.size
+        if (sftpCount > 0) parts += "$sftpCount SFTP"
         val title = parts.joinToString(" · ").ifEmpty { "Menjaga koneksi" }
         val hosts = live.map { it.host.label }.distinct().joinToString(", ")
 
@@ -161,6 +163,10 @@ class SessionService : Service() {
                 else -> s.state.value.name.lowercase()
             }
             style.addLine("● ${s.host.label}${s.tmuxName?.let { " · tmux:$it" } ?: ""} — $st")
+        }
+        mgr.sftpSessions.value.take(4).forEach { f ->
+            val label = TermXApp.container.vault.host(f.hostId)?.label ?: "?"
+            style.addLine("● $label — SFTP ${f.path.ifEmpty { "~" }}")
         }
         style.setSummaryText(
             (if (live.size > 6) "+${live.size - 6} lainnya · " else "") + "Tetap aktif sampai Anda memutuskan",

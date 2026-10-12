@@ -410,6 +410,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     mgr.openTerminal(hostId, tmuxOverride = name, loadHistory = true)?.let { selectedId = it.id }
                 },
                 initialTab = switcherTab,
+                onOpenSftp = { hostId, path, sid -> showSwitcher = false; nav.sftp(hostId, path, sid) },
             )
         }
     }

@@ -72,7 +72,7 @@ object Routes {
     const val HOME = "home"
     const val HOST_EDIT = "host_edit?id={id}"
     const val TERMINAL = "terminal?session={session}"
-    const val SFTP = "sftp/{hostId}?path={path}"
+    const val SFTP = "sftp/{hostId}?path={path}&sid={sid}"
     const val EDITOR = "editor/{hostId}?path={path}&new={new}"
     const val MONITOR = "monitor/{hostId}"
     const val FORWARDS = "forwards?hostId={hostId}"
@@ -81,7 +81,10 @@ object Routes {
 
     fun hostEdit(id: String? = null) = if (id == null) "host_edit" else "host_edit?id=$id"
     fun terminal(sessionId: String) = "terminal?session=$sessionId"
-    fun sftp(hostId: String, path: String? = null) = if (path == null) "sftp/$hostId" else "sftp/$hostId?path=${android.net.Uri.encode(path)}"
+    fun sftp(hostId: String, path: String? = null, sid: String? = null): String {
+        val q = listOfNotNull(path?.let { "path=${android.net.Uri.encode(it)}" }, sid?.let { "sid=$it" })
+        return "sftp/$hostId" + if (q.isEmpty()) "" else "?" + q.joinToString("&")
+    }
     fun editor(hostId: String, path: String, isNew: Boolean = false) =
         "editor/$hostId?path=${android.net.Uri.encode(path)}&new=$isNew"
     fun monitor(hostId: String) = "monitor/$hostId"
@@ -93,7 +96,11 @@ class Nav(private val nav: NavHostController) {
     fun back() { if (nav.previousBackStackEntry != null) nav.popBackStack() }
     fun editHost(id: String? = null) = nav.navigate(Routes.hostEdit(id))
     fun terminal(sessionId: String) = nav.navigate(Routes.terminal(sessionId)) { launchSingleTop = true }
-    fun sftp(hostId: String, path: String? = null) = nav.navigate(Routes.sftp(hostId, path))
+    /** Buka (atau lanjutkan) sesi SFTP ke host; sesi tampil di tab Sesi sampai ditutup. */
+    fun sftp(hostId: String, path: String? = null, sid: String? = null) {
+        val s = TermXApp.container.sessions.openSftp(hostId, path, sid)
+        nav.navigate(Routes.sftp(hostId, s.path.ifEmpty { path ?: "" }.ifEmpty { null }, s.id)) { launchSingleTop = true }
+    }
     fun editor(hostId: String, path: String, isNew: Boolean = false) = nav.navigate(Routes.editor(hostId, path, isNew))
     fun monitor(hostId: String) = nav.navigate(Routes.monitor(hostId))
     fun forwards(hostId: String? = null) = nav.navigate(Routes.forwards(hostId))
@@ -133,8 +140,11 @@ fun AppRoot() {
             arguments = listOf(
                 navArgument("hostId") { type = NavType.StringType },
                 navArgument("path") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("sid") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
-        ) { SftpScreen(nav, it.arguments?.getString("hostId") ?: "", it.arguments?.getString("path")) }
+        ) {
+            SftpScreen(nav, it.arguments?.getString("hostId") ?: "", it.arguments?.getString("path"), it.arguments?.getString("sid"))
+        }
         composable(
             Routes.EDITOR,
             arguments = listOf(

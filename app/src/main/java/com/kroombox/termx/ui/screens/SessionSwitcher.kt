@@ -1,5 +1,6 @@
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -70,7 +71,9 @@ fun SessionSwitcher(
     onNew: (hostId: String, tmux: String?) -> Unit,
     onAttachTmux: (hostId: String, name: String) -> Unit,
     initialTab: Int = 0,
+    onOpenSftp: (hostId: String, path: String?, sid: String?) -> Unit = { _, _, _ -> },
 ) {
+    val sftps by TermXApp.container.sessions.sftpSessions.collectAsState()
     val data by TermXApp.container.vault.data.collectAsState()
     var tab by remember { mutableIntStateOf(initialTab) }
     var query by remember { mutableStateOf("") }
@@ -78,7 +81,7 @@ fun SessionSwitcher(
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Sesi", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            Text("${sessions.size} aktif", style = MaterialTheme.typography.labelLarge, color = Palette.Accent)
+            Text("${sessions.size + sftps.size} aktif", style = MaterialTheme.typography.labelLarge, color = Palette.Accent)
         }
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 8.dp).horizontalScroll(rememberScrollState()),
@@ -93,6 +96,24 @@ fun SessionSwitcher(
             0 -> LazyColumn(Modifier.heightIn(max = 520.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
                 items(sessions, key = { it.id }) { s ->
                     ActiveSessionItem(s, selected = s.id == current.id, onClick = { onSelect(s) }, onClose = { onClose(s) })
+                }
+                items(sftps, key = { "sftp-" + it.id }) { f ->
+                    val h = data.hosts.firstOrNull { it.id == f.hostId }
+                    if (h != null) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpenSftp(f.hostId, f.path.ifEmpty { null }, f.id) }
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            HostAvatar(h, size = 40.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(h.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("SFTP · " + f.path.ifEmpty { "~" }, style = MaterialTheme.typography.bodySmall, color = Palette.Blue, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton(onClick = { TermXApp.container.sessions.closeSftp(f.id) }) { Icon(Icons.Rounded.Close, "Tutup sesi SFTP", tint = Palette.TextDim) }
+                        }
+                    }
                 }
             }
             1 -> Column {
@@ -112,7 +133,7 @@ fun SessionSwitcher(
                     .filter { h -> query.isBlank() || listOf(h.label, h.hostname, h.username).any { it.contains(query, true) } }
                     .sortedByDescending { it.lastConnectedAt }
                 LazyColumn(Modifier.heightIn(max = 460.dp), contentPadding = PaddingValues(12.dp)) {
-                    items(hosts, key = { it.id }) { h -> NewSessionItem(h, onNew) }
+                    items(hosts, key = { it.id }) { h -> NewSessionItem(h, onNew, onSftp = { onOpenSftp(h.id, null, null) }) }
                 }
             }
             else -> RemoteTmuxList(current.host, onAttachTmux)
@@ -149,7 +170,7 @@ private fun ActiveSessionItem(s: TerminalSession, selected: Boolean, onClick: ()
 }
 
 @Composable
-private fun NewSessionItem(h: Host, onNew: (String, String?) -> Unit) {
+private fun NewSessionItem(h: Host, onNew: (String, String?) -> Unit, onSftp: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onNew(h.id, null) }.padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -162,6 +183,7 @@ private fun NewSessionItem(h: Host, onNew: (String, String?) -> Unit) {
         }
         IconButton(onClick = { onNew(h.id, null) }) { Icon(Icons.Rounded.Terminal, "Terminal", tint = Palette.Accent) }
         IconButton(onClick = { onNew(h.id, h.tmuxSessionName) }) { Icon(Icons.Rounded.Layers, "Terminal tmux", tint = Palette.Blue) }
+        IconButton(onClick = onSftp) { Icon(Icons.Rounded.Folder, "SFTP", tint = Palette.Warn) }
     }
 }
 

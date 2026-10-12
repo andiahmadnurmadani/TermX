@@ -154,9 +154,9 @@ class TerminalSession(
                     host = manager.latestHost(host.id) ?: host
                     emulator.append(
                         Banner.render(
-                            userHost = host.address,
+                            userHost = host.label,
                             osName = host.osName,
-                            mode = tmuxName?.let { "tmux: $it (persisten)" } ?: "terminal biasa",
+                            mode = tmuxName?.let { "SSH · tmux \"$it\" (tetap jalan di server)" } ?: "SSH · ${host.username}@${host.hostname}:${host.port}",
                             cols = emulator.cols,
                         ).toByteArray(),
                     )

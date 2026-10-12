@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import com.kroombox.termx.data.Host
 import com.kroombox.termx.data.SavedSession
+import com.kroombox.termx.data.SavedSftp
 import com.kroombox.termx.data.SecretBox
 import com.kroombox.termx.data.Vault
 import com.kroombox.termx.data.newId
@@ -41,6 +42,53 @@ class SessionManager(private val context: Context, val vault: Vault) {
     val forwards = PortForwardManager(this)
 
     val history = SessionHistory(context)
+
+    // ------------------------------------------------------------------ Sesi SFTP
+    /** Sesi SFTP: tetap terbuka (dan menahan koneksi) sampai ditutup pengguna, seperti tab terminal. */
+    data class SftpSession(
+        val id: String,
+        val hostId: String,
+        val path: String = "",
+        /** Beberapa entri folder terakhir, untuk pratinjau di tab Sesi. */
+        val preview: List<String> = emptyList(),
+        val openedAt: Long = System.currentTimeMillis(),
+    )
+
+    private val _sftpSessions = MutableStateFlow<List<SftpSession>>(emptyList())
+    val sftpSessions: StateFlow<List<SftpSession>> = _sftpSessions.asStateFlow()
+
+    /** Buka sesi SFTP ke host (pakai yang sudah ada untuk host itu bila ada). */
+    fun openSftp(hostId: String, path: String? = null, id: String? = null): SftpSession {
+        _sftpSessions.value.firstOrNull { it.id == id || (id == null && it.hostId == hostId) }?.let { return it }
+        val s = SftpSession(id ?: newId(), hostId, path ?: "")
+        acquire(hostId, "sftp-session:${s.id}")
+        _sftpSessions.update { it + s }
+        persistSftp()
+        refreshService()
+        return s
+    }
+
+    fun sftpSession(id: String?): SftpSession? = _sftpSessions.value.firstOrNull { it.id == id }
+
+    fun updateSftp(id: String, path: String, preview: List<String>) {
+        var changed = false
+        _sftpSessions.update { list ->
+            list.map { if (it.id == id && (it.path != path || it.preview != preview)) { changed = true; it.copy(path = path, preview = preview) } else it }
+        }
+        if (changed) persistSftp()
+    }
+
+    fun closeSftp(id: String) {
+        val s = sftpSession(id) ?: return
+        _sftpSessions.update { list -> list.filterNot { it.id == id } }
+        persistSftp()
+        release(s.hostId, "sftp-session:${s.id}")
+    }
+
+    private fun persistSftp() {
+        val list = _sftpSessions.value.map { SavedSftp(it.id, it.hostId, it.path) }
+        if (list != vault.current.openSftp) vault.update { it.copy(openSftp = list) }
+    }
     val commandHistory = CommandHistory(context)
 
     /** Saran autocomplete untuk host dan awal baris. */
@@ -160,6 +208,9 @@ class SessionManager(private val context: Context, val vault: Vault) {
     fun restoreSessions() {
         val d0 = vault.current
         history.prune((d0.openSessions + d0.recentSessions).mapNotNull { it.historyKey }.toSet())
+        if (_sftpSessions.value.isEmpty()) {
+            d0.openSftp.forEach { sv -> if (vault.host(sv.hostId) != null) openSftp(sv.hostId, sv.path, sv.id) }
+        }
         val saved = d0.openSessions
         if (saved.isEmpty() || _sessions.value.isNotEmpty()) return
         saved.forEach { ss ->
@@ -205,6 +256,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
     }
 
     fun closeAll() {
+        _sftpSessions.value.forEach { closeSftp(it.id) }
         _sessions.value.forEach { saveHistory(it, force = true); rememberRecent(it, ended = false); it.close() }
         _sessions.value = emptyList()
         vault.update { it.copy(openSessions = emptyList()) }
@@ -358,7 +410,8 @@ class SessionManager(private val context: Context, val vault: Vault) {
     }
 
     val activeSessionCount: Int
-        get() = _sessions.value.count { it.state.value == SessionState.CONNECTED || it.state.value == SessionState.RECONNECTING || it.state.value == SessionState.CONNECTING }
+        get() = _sessions.value.count { it.state.value == SessionState.CONNECTED || it.state.value == SessionState.RECONNECTING || it.state.value == SessionState.CONNECTING } +
+            _sftpSessions.value.size
 
     fun refreshService() {
         val needed = activeSessionCount > 0 || forwards.activeCount > 0

@@ -3,6 +3,17 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.7.0] - 2026-10-12
+
+### Ditambahkan
+- **Sesi SFTP** (ala Termius): membuka SFTP membuat sesi yang tampil di tab **Sesi** (dengan pratinjau isi folder),
+  di panel sesi terminal, dan di notifikasi. Sesi tetap terbuka (dan dipulihkan bila aplikasi dimatikan Android)
+  sampai ditutup dengan ✕. Panel **Sesi baru** di terminal punya tombol SFTP per host.
+
+### Diubah
+- Banner saat tersambung tidak lagi menulis "terminal biasa": kini menampilkan nama host, OS, dan
+  `SSH · user@host:port` (atau `SSH · tmux "nama" (tetap jalan di server)`).
+
 ## [0.6.1] - 2026-10-12
 
 ### Diubah
