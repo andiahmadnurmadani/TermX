@@ -1,26 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ikon orisinal: prompt ">_" di dalam bingkai membulat. -->
+<!--
+  Logo TermX: huruf X yang tersusun dari dua chevron prompt — ">" bergradien hijau-sian dan "<"
+  putih — ditambah kursor "_" di kanan bawah. Semua isi berada dalam zona aman ikon adaptif (66dp).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- bayangan glow -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FF3DDC97"
-        android:strokeWidth="4"
-        android:pathData="M34,32 L74,32 Q80,32 80,38 L80,70 Q80,76 74,76 L34,76 Q28,76 28,70 L28,38 Q28,32 34,32 Z" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FF3DDC97"
-        android:strokeWidth="5"
+        android:strokeColor="#333DDC97"
+        android:strokeWidth="17"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M39,45 L49,54 L39,63" />
+        android:pathData="M34,33 L54,53 L34,73" />
+    <!-- chevron ">" -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M34,33 L54,53 L34,73">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="34" android:startY="33"
+                android:endX="54" android:endY="73">
+                <item android:offset="0" android:color="#FF22D3EE" />
+                <item android:offset="1" android:color="#FF3DDC97" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- chevron "<" -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFE6EDF3"
-        android:strokeWidth="5"
+        android:strokeWidth="10"
         android:strokeLineCap="round"
-        android:pathData="M54,64 L68,64" />
+        android:strokeLineJoin="round"
+        android:pathData="M74,33 L54,53 L74,73" />
+    <!-- kursor -->
+    <path
+        android:fillColor="#FF3DDC97"
+        android:pathData="M63,79h14a2.25,2.25 0,0 1,0 4.5h-14a2.25,2.25 0,0 1,0 -4.5z" />
 </vector>

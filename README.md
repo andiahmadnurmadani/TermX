@@ -1,28 +1,34 @@
-# Konsol — klien SSH Android
+# TermX — klien SSH Android
 
-> Nama "Konsol" masih sementara. Untuk menggantinya, ubah `app_name` di
-> `app/src/main/res/values/strings.xml` dan `applicationId` di `app/build.gradle.kts`.
+<p align="center"><img src="docs/logo.png" width="128" alt="TermX"></p>
 
 Klien SSH Android bergaya modern (terinspirasi alur kerja Termius) dengan Kotlin + Jetpack Compose.
 Fitur andalannya adalah **sesi persisten**: shell dijalankan di dalam `tmux` di server. Program yang
 Anda jalankan (Claude Code, build panjang, `tail -f`, dsb.) tetap hidup di server walau HP terputus,
 layar mati, atau aplikasi ditutup. Saat tersambung lagi, aplikasi otomatis masuk ke sesi yang sama.
 
+**Sesi tidak pernah putus sendiri.** Selama tab belum ditutup, TermX terus menyambung ulang (tanpa
+batas, termasuk saat jaringan berganti Wi-Fi ↔ data), memulihkan tab setelah Android mematikan
+proses aplikasi, dan menampilkan notifikasi tetap di atas sampai Anda menekan **Putuskan semua** atau
+menutup tab.
+
 ## Fitur
 
 | Area | Isi |
 |---|---|
 | **Host** | Daftar host dengan grup, tag, warna, pencarian; duplikat; jump host (bastion); keep-alive; perintah awal |
+| **Ikon host** | Logo OS otomatis (Ubuntu, Debian, Arch, Fedora, Rocky, Alpine, Raspberry Pi, Proxmox, macOS, Windows, dll.) dideteksi saat konek; bisa diganti logo OS lain, ikon bawaan, atau emoji |
+| **Sudo** | Password sudo per host (atau pakai password login); snippet "jalankan dengan sudo" mengetik password otomatis saat prompt sudo muncul; menu terminal "Ketik password sudo" |
 | **Font** | JetBrains Mono (default), Fira Code, Cascadia Code, Hack, monospace sistem, plus **impor font sendiri (.ttf/.otf, mis. Nerd Font)**; pratinjau di Pengaturan; ligatur bisa dinyalakan; ganti cepat dari menu terminal |
 | **Terminal** | Emulator xterm-256color + truecolor buatan sendiri (alt screen, scroll region, mouse SGR, bracketed paste, OSC title/clipboard), multi-tab, pinch-zoom, seleksi & salin, bar tombol tambahan (CTRL/ALT sticky, panah, F1–F12, dapat diatur), 5 tema |
 | **Sesi persisten** | Attach otomatis ke `tmux new -A`; mouse tmux untuk menggulir riwayat dengan geser; auto-reconnect dengan backoff + reaksi saat jaringan berganti; daftar/attach/akhiri sesi tmux di server; perintah awal hanya dijalankan saat sesi baru dibuat |
-| **Latar belakang** | Foreground service + wake/wifi lock menjaga koneksi saat aplikasi di belakang; notifikasi dengan tombol "Putuskan semua" |
+| **Latar belakang** | Foreground service (sticky) + wake/wifi lock; notifikasi tetap (muncul lagi bila diusap) berisi daftar sesi, lama aktif, tombol "Putuskan semua"; tab dipulihkan setelah proses dimatikan; permintaan pengecualian optimasi baterai |
 | **Keychain** | Buat kunci Ed25519 / RSA, impor OpenSSH / PEM / PuTTY (dengan passphrase), salin/bagikan public key, **pasang ke `authorized_keys` server dengan satu tap** |
 | **Keamanan** | Password & kunci privat dienkripsi AES-256-GCM dengan Android Keystore; verifikasi host key (TOFU, SHA256) dengan peringatan bila berubah; daftar known hosts |
 | **SFTP** | Jelajah, unggah/unduh (Storage Access Framework) dengan progres, buat folder, ganti nama, hapus rekursif, lihat/edit file teks kecil, file tersembunyi |
 | **Port forwarding** | Lokal (-L), remote (-R), dinamis/SOCKS5 (-D); mulai otomatis |
-| **Snippet** | Simpan perintah; jalankan dari terminal (⚡) atau ke tab aktif mana pun |
-| **Monitor** | CPU, RAM, swap, load, disk, jaringan, proses teratas, jumlah container Docker — read-only, refresh 3 detik |
+| **Snippet** | Simpan perintah dengan ikon pilihan sendiri; opsi sudo; jalankan dari terminal (⚡) atau ke tab aktif mana pun |
+| **Monitor** | CPU, RAM, swap, load, disk, jaringan, proses teratas, daftar container Docker; mode **sudo** untuk server yang butuh root (mis. Docker) — read-only, refresh 3 detik |
 | **Cadangan** | Ekspor/impor konfigurasi (tanpa rahasia) |
 
 ## Membangun APK
@@ -30,7 +36,8 @@ layar mati, atau aplikasi ditutup. Saat tersambung lagi, aplikasi otomatis masuk
 ### Opsi A — GitHub Actions (tanpa install apa pun)
 1. Push folder ini ke repo GitHub (privat).
 2. Workflow `.github/workflows/android.yml` otomatis menjalankan unit test dan `assembleDebug`.
-3. Unduh APK dari tab **Actions → run terbaru → Artifacts → `konsol-debug-apk`**.
+3. Unduh APK dari **Releases → `latest-debug` → `termx-debug.apk`** (atau Actions → Artifacts → `termx-debug-apk`).
+   Build debug ditandatangani kunci tetap (`app/termx-debug.p12`), jadi versi baru bisa dipasang menimpa yang lama.
 
 ### Opsi B — Android Studio
 1. Buka folder proyek di Android Studio (Ladybug atau lebih baru), tunggu Gradle sync.
@@ -60,16 +67,17 @@ atau tab **Sesi → Sesi tmux di server** untuk mengakhirinya.
 ## Struktur kode
 
 ```
-app/src/main/java/com/kroombox/konsol/
-├── KonsolApp.kt, MainActivity.kt   # setup BouncyCastle, container, activity
+app/src/main/java/com/kroombox/termx/
+├── TermXApp.kt, MainActivity.kt   # setup BouncyCastle, container, activity
 ├── data/       # model (kotlinx.serialization), Vault (JSON atomik), SecretBox (Keystore), KeyManager, format kunci OpenSSH
-├── ssh/        # SshConnection (sshj), SessionManager, TerminalSession (reconnect), Tmux, PortForwards (+SOCKS5), ServerStats, Prompts
+├── os/         # OsCatalog: logo OS (Simple Icons, CC0) + deteksi OS dari /etc/os-release
+├── ssh/        # SshConnection (sshj, sudo), SessionManager, TerminalSession (reconnect tanpa batas, sudo autofill), Sudo, Tmux, PortForwards (+SOCKS5), ServerStats, Prompts
 ├── terminal/   # TerminalEmulator (VT/xterm), TerminalView (Canvas + IME), KeyEncoder, TerminalTheme
-├── service/    # SessionService (foreground service)
+├── service/    # SessionService (foreground service sticky + notifikasi tetap), BatteryOptimization
 └── ui/         # Compose: AppNav, theme, components, screens/*
 ```
 
-Unit test JVM (`app/src/test`) mencakup emulator terminal, encoder tombol, format kunci, perintah tmux, dan parser statistik.
+Unit test JVM (`app/src/test`) mencakup emulator terminal, encoder tombol, format kunci, perintah tmux, parser statistik/Docker, deteksi OS, dan sudo.
 
 ## Lisensi font
 
@@ -79,5 +87,7 @@ JetBrains Mono, Fira Code, Cascadia Code — SIL Open Font License 1.1; Hack —
 ## Catatan
 
 - Port di bawah 1024 tidak bisa dibuka di HP tanpa root (port forwarding lokal/SOCKS).
-- Opsi "Jaga koneksi saat layar mati" memakai wake lock — menambah konsumsi baterai, matikan di Pengaturan bila tidak perlu.
+- Opsi "Jaga koneksi di latar belakang" memakai wake lock — menambah konsumsi baterai, matikan di Pengaturan bila tidak perlu.
+- Beberapa merek HP (Xiaomi, Oppo, Vivo, Huawei) punya manajer baterai tambahan: izinkan juga "Autostart"/"Tanpa batasan" untuk TermX di pengaturan HP.
+- Logo OS berasal dari [Simple Icons](https://simpleicons.org) (CC0); merek milik pemiliknya masing-masing.
 - Belum ada: sinkronisasi cloud antar perangkat, Mosh, agent forwarding, biometrik app lock — kandidat versi berikutnya.

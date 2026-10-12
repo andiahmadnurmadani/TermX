@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Konsol"
+rootProject.name = "TermX"
 include(":app")

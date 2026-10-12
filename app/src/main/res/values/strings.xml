@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Nama sementara. Ganti di sini (dan applicationId di app/build.gradle.kts) bila nama final sudah ada. -->
-    <string name="app_name">Konsol</string>
+    <string name="app_name">TermX</string>
 </resources>

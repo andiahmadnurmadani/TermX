@@ -10,3 +10,4 @@
 .cxx/
 *.keystore
 *.jks
+!/app/termx-debug.p12

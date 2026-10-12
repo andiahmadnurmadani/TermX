@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Logo TermX untuk dipakai di dalam aplikasi (kotak membulat + glyph). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M26,4h56a22,22 0,0 1,22 22v56a22,22 0,0 1,-22 22h-56a22,22 0,0 1,-22 -22v-56a22,22 0,0 1,22 -22z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4" android:startY="4"
+                android:endX="104" android:endY="104">
+                <item android:offset="0" android:color="#FF16213A" />
+                <item android:offset="1" android:color="#FF080B14" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#403DDC97"
+        android:strokeWidth="1.5"
+        android:pathData="M26,4.75h56a21.25,21.25 0,0 1,21.25 21.25v56a21.25,21.25 0,0 1,-21.25 21.25h-56a21.25,21.25 0,0 1,-21.25 -21.25v-56a21.25,21.25 0,0 1,21.25 -21.25z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeWidth="11"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,30 L54,52 L32,74">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="32" android:startY="30"
+                android:endX="54" android:endY="74">
+                <item android:offset="0" android:color="#FF22D3EE" />
+                <item android:offset="1" android:color="#FF3DDC97" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFE6EDF3"
+        android:strokeWidth="11"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M76,30 L54,52 L76,74" />
+    <path
+        android:fillColor="#FF3DDC97"
+        android:pathData="M66,80h16a2.5,2.5 0,0 1,0 5h-16a2.5,2.5 0,0 1,0 -5z" />
+</vector>

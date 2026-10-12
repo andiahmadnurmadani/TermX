@@ -6,10 +6,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +37,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: konsol-debug-apk
+          name: termx-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
@@ -41,3 +48,16 @@ jobs:
           name: test-reports
           path: app/build/reports/tests/
           if-no-files-found: ignore
+
+      - name: Publish pre-release "latest-debug"
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          cp "$APK" termx-debug.apk
+          gh release delete latest-debug -y --cleanup-tag || true
+          gh release create latest-debug termx-debug.apk \
+            --prerelease --target "${GITHUB_SHA}" \
+            --title "TermX debug ${GITHUB_SHA::7}" \
+            --notes "APK debug otomatis dari commit ${GITHUB_SHA}. Pasang di Android 8.0+ (izinkan instal dari sumber tidak dikenal). Versi berikutnya bisa dipasang menimpa tanpa uninstall."

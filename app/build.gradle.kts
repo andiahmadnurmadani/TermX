@@ -6,17 +6,28 @@ plugins {
 }
 
 android {
-    namespace = "com.kroombox.konsol"
+    namespace = "com.kroombox.termx"
     compileSdk = 34
 
     defaultConfig {
-        // Ganti applicationId & nama aplikasi (res/values/strings.xml) saat nama final sudah ditentukan.
-        applicationId = "com.kroombox.konsol"
+        applicationId = "com.kroombox.termx"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    signingConfigs {
+        // Kunci debug tetap (bukan rahasia, hanya untuk build debug) supaya APK dari CI bisa dipasang
+        // menimpa versi sebelumnya tanpa uninstall — data host dan sesi tidak hilang.
+        getByName("debug") {
+            storeFile = file("termx-debug.p12")
+            storeType = "pkcs12"
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -26,6 +37,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
+            signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
