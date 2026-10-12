@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -202,6 +203,26 @@ fun SettingsScreen(nav: Nav) {
 
             SectionHeader("Keyboard")
             AppCard {
+                Text("Jenis keyboard di terminal", style = MaterialTheme.typography.bodyLarge)
+                listOf(
+                    "standard" to ("Standar (disarankan)" to "Keyboard normal, setiap huruf langsung terkirim — paling cepat."),
+                    "text" to ("Teks dengan saran" to "Saran kata & autocorrect aktif; kata dikirim sambil diketik."),
+                    "nosuggest" to ("Tanpa saran" to "Mode lama: keyboard tipe password tanpa saran."),
+                ).forEach { (id, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .clickable { vault.updateSettings { it.copy(keyboardMode = id) } }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = s.keyboardMode == id, onClick = { vault.updateSettings { it.copy(keyboardMode = id) } })
+                        Column(Modifier.weight(1f)) {
+                            Text(label.first, style = MaterialTheme.typography.bodyMedium)
+                            Text(label.second, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     extraKeys, { extraKeys = it }, label = { Text("Tombol tambahan") },
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),

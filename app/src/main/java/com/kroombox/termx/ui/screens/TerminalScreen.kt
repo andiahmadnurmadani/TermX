@@ -244,6 +244,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                             setPadding(8, 4, 8, 4)
                             this.theme = theme
                             fontSizeSp = fontSize
+                            keyboardMode = settings.keyboardMode
                             setFont(font.id, font.regular, font.bold, settings.ligatures)
                             stickyModsProvider = { stickyMods }
                             onStickyModsConsumed = { stickyMods = 0 }
@@ -260,6 +261,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     },
                     update = { v ->
                         v.theme = theme
+                        v.keyboardMode = settings.keyboardMode
                         v.setFont(font.id, font.regular, font.bold, settings.ligatures)
                         if (v.fontSizeSp != fontSize) v.fontSizeSp = fontSize
                     },

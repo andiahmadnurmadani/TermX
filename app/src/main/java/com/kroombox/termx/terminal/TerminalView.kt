@@ -537,47 +537,94 @@ class TerminalView(context: Context) : View(context) {
     // ------------------------------------------------------------------ Keyboard
     override fun onCheckIsTextEditor(): Boolean = true
 
+    /**
+     * Jenis keyboard yang diminta ke Android:
+     *  - "standard": TYPE_NULL (seperti Termux) — keyboard tampil normal, tiap tombol langsung terkirim.
+     *  - "text": keyboard teks dengan saran/autocorrect; kata yang sedang disusun dikirim bertahap.
+     *  - "nosuggest": mode lama (visible password, tanpa saran).
+     */
+    var keyboardMode: String = "standard"
+        set(value) {
+            if (field == value) return
+            field = value
+            (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).restartInput(this)
+        }
+
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
-            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
-            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        outAttrs.inputType = when (keyboardMode) {
+            "text" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+            "nosuggest" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            else -> InputType.TYPE_NULL
+        }
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or
             EditorInfo.IME_FLAG_NO_FULLSCREEN or
             EditorInfo.IME_ACTION_NONE
         return TermInputConnection()
     }
 
+    /**
+     * Penghubung keyboard. Tidak ada yang ditahan: teks yang sedang "disusun" keyboard (huruf
+     * bergaris bawah) langsung dikirim ke server, dan bila keyboard mengubahnya (autocorrect, saran)
+     * hanya selisihnya yang dikirim — backspace untuk bagian yang berubah lalu teks barunya. Dulu teks
+     * baru terkirim saat kata selesai, itulah yang terasa sebagai jeda.
+     */
     private inner class TermInputConnection : BaseInputConnection(this@TerminalView, true) {
-        private fun flush() {
-            val e = editable ?: return
-            if (e.isNotEmpty()) {
-                val s = e.toString()
-                e.clear()
-                sendText(s)
-            }
+        /** Teks susunan yang sudah terkirim ke server. */
+        private var sentComposing = ""
+
+        private fun applyDiff(old: String, new: String) {
+            var p = 0
+            while (p < old.length && p < new.length && old[p] == new[p]) p++
+            if (p > 0 && Character.isHighSurrogate(old[p - 1])) p--
+            val removed = old.codePointCount(p, old.length)
+            repeat(removed) { sendKey(TermKey.BACKSPACE) }
+            if (p < new.length) sendText(new.substring(p))
+        }
+
+        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val t = text?.toString() ?: ""
+            applyDiff(sentComposing, t)
+            sentComposing = t
+            return true
         }
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-            super.commitText(text, newCursorPosition)
-            flush()
+            val t = text?.toString() ?: ""
+            if (sentComposing.isNotEmpty()) applyDiff(sentComposing, t) else sendText(t)
+            sentComposing = ""
+            editable?.clear()
             return true
         }
 
         override fun finishComposingText(): Boolean {
-            super.finishComposingText()
-            flush()
+            // Teksnya sudah terkirim saat disusun; cukup lupakan penandanya.
+            sentComposing = ""
+            editable?.clear()
             return true
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-            val e = editable
-            if (e != null && e.isNotEmpty()) return super.deleteSurroundingText(beforeLength, afterLength)
+            if (sentComposing.isNotEmpty()) {
+                val keep = (sentComposing.length - beforeLength).coerceAtLeast(0)
+                val next = sentComposing.substring(0, keep)
+                applyDiff(sentComposing, next)
+                sentComposing = next
+                return true
+            }
             repeat(beforeLength.coerceAtLeast(1).coerceAtMost(64)) { sendKey(TermKey.BACKSPACE) }
             return true
         }
 
+        override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence = sentComposing.takeLast(n)
+
         override fun sendKeyEvent(event: KeyEvent): Boolean {
-            if (event.action == KeyEvent.ACTION_DOWN) handleKeyDown(event.keyCode, event)
+            when {
+                event.action == KeyEvent.ACTION_DOWN -> handleKeyDown(event.keyCode, event)
+                // Sebagian keyboard mengirim teks sebagai satu event "multiple".
+                event.action == KeyEvent.ACTION_MULTIPLE && event.keyCode == KeyEvent.KEYCODE_UNKNOWN ->
+                    event.characters?.let { sendText(it) }
+            }
             return true
         }
     }

@@ -134,6 +134,8 @@ data class AppSettings(
     val keepAliveInBackground: Boolean = true,
     /** Dialog izin "tanpa batasan baterai" sudah pernah ditampilkan. */
     val batteryPromptShown: Boolean = false,
+    /** Keyboard terminal: "standard" (cepat, tanpa mode password), "text" (saran/autocorrect), "nosuggest" (mode lama). */
+    val keyboardMode: String = "standard",
     /** Layout bar tombol tambahan, dipisah spasi. */
     val extraKeys: String = DEFAULT_EXTRA_KEYS,
 ) {

@@ -3,6 +3,17 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.3.3] - 2026-10-12
+
+### Diubah
+- Keyboard terminal tidak lagi memakai mode password. Default **Standar** (seperti Termux): keyboard HP tampil normal
+  dan setiap huruf langsung terkirim.
+- Pilihan jenis keyboard di Pengaturan: Standar, Teks dengan saran (autocorrect), atau Tanpa saran (mode lama).
+
+### Diperbaiki
+- Jeda saat mengetik: teks yang sedang disusun keyboard kini langsung dikirim (perubahan dari saran/autocorrect
+  dikirim sebagai selisih), bukan menunggu kata selesai.
+
 ## [0.3.2] - 2026-10-12
 
 ### Diubah
