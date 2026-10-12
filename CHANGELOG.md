@@ -3,6 +3,18 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.7.1] - 2026-10-12
+
+### Diperbaiki
+- Judul "SFTP" tidak lagi turun per huruf: bar atas SFTP kini hanya berisi Segarkan dan File baru; Folder induk,
+  Folder baru, file tersembunyi, dan Tutup sesi SFTP pindah ke menu ⋮.
+
+### Proyek
+- Repo dibuka untuk publik dengan [lisensi MIT](LICENSE), [SECURITY.md](SECURITY.md), dan
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- Kunci tanda tangan debug tidak lagi disimpan di repo (dipindah ke secret CI dan diganti baru). Build debug lama
+  perlu di-uninstall sekali sebelum memasang build debug baru; APK dari **Releases** tidak terpengaruh.
+
 ## [0.7.0] - 2026-10-12
 
 ### Ditambahkan

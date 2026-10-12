@@ -2,6 +2,12 @@
 
 <p align="center"><img src="docs/logo.png" width="128" alt="TermX"></p>
 
+<p align="center">
+  <a href="../../releases/latest">Unduh APK terbaru</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="LICENSE">Lisensi MIT</a>
+</p>
+
 Klien SSH Android bergaya modern (terinspirasi alur kerja Termius) dengan Kotlin + Jetpack Compose.
 Ketuk host untuk membuka **terminal biasa**; pilih **Terminal tmux** (menu host, tab Sesi, atau menu
 terminal) untuk **sesi persisten**: shell dijalankan di dalam `tmux` di server. Program yang
@@ -52,7 +58,7 @@ menutup tab.
 1. Push folder ini ke repo GitHub (privat).
 2. Workflow `.github/workflows/android.yml` otomatis menjalankan unit test dan `assembleDebug`.
 3. Unduh APK dari **Releases → `latest-debug` → `termx-debug.apk`** (atau Actions → Artifacts → `termx-debug-apk`).
-   Build debug ditandatangani kunci tetap (`app/termx-debug.p12`), jadi versi baru bisa dipasang menimpa yang lama.
+   Build debug CI ditandatangani kunci debug yang disimpan sebagai secret repo, jadi versi baru bisa dipasang menimpa yang lama.
 
 ### Opsi B — Android Studio
 1. Buka folder proyek di Android Studio (Ladybug atau lebih baru), tunggu Gradle sync.
@@ -94,10 +100,16 @@ app/src/main/java/com/kroombox/termx/
 
 Unit test JVM (`app/src/test`) mencakup emulator terminal, encoder tombol, format kunci, perintah tmux, parser statistik/Docker, deteksi OS, dan sudo.
 
-## Lisensi font
+## Lisensi
 
-Font bawaan disertakan sesuai lisensinya (teks lisensi di `app/src/main/assets/licenses/`):
-JetBrains Mono, Fira Code, Cascadia Code — SIL Open Font License 1.1; Hack — MIT + Bitstream Vera.
+TermX dirilis di bawah [lisensi MIT](LICENSE). Komponen pihak ketiga (sshj, Bouncy Castle, AndroidX, font,
+logo OS) memakai lisensinya masing-masing — lihat [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Laporan celah keamanan: lihat [SECURITY.md](SECURITY.md).
+
+## Kontribusi
+
+Issue dan pull request dipersilakan. Jalankan `./gradlew testDebugUnitTest assembleDebug` sebelum mengirim PR.
+Build CI untuk PR dari fork ditandatangani kunci debug bawaan (secret repo tidak tersedia untuk fork).
 
 ## Catatan
 

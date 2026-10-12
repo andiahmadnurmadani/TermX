@@ -29,7 +29,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
+      - name: Kunci debug (secret; dilewati untuk PR dari fork)
+        env:
+          KEYSTORE_B64: ${{ secrets.TERMX_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/termx-debug.p12"
+            echo "TERMX_DEBUG_KEYSTORE_FILE=$RUNNER_TEMP/termx-debug.p12" >> "$GITHUB_ENV"
+          fi
+
       - name: Unit test + build debug APK
+        env:
+          TERMX_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.TERMX_DEBUG_KEYSTORE_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace testDebugUnitTest assembleDebug

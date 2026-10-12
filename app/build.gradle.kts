@@ -36,14 +36,18 @@ android {
                 keyPassword = System.getenv("TERMX_KEYSTORE_PASSWORD")
             }
         }
-        // Kunci debug tetap (bukan rahasia, hanya untuk build debug) supaya APK dari CI bisa dipasang
-        // menimpa versi sebelumnya tanpa uninstall — data host dan sesi tidak hilang.
-        getByName("debug") {
-            storeFile = file("termx-debug.p12")
-            storeType = "pkcs12"
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        // Kunci debug CI disimpan sebagai secret GitHub (TERMX_DEBUG_KEYSTORE_*), bukan di repo, supaya
+        // build debug dari CI bisa dipasang menimpa versi sebelumnya. Tanpa secret (build lokal, PR dari
+        // fork) dipakai kunci debug bawaan Android Studio.
+        val debugStore = System.getenv("TERMX_DEBUG_KEYSTORE_FILE")
+        if (debugStore != null && file(debugStore).exists()) {
+            getByName("debug") {
+                storeFile = file(debugStore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("TERMX_DEBUG_KEYSTORE_PASSWORD")
+                keyAlias = "androiddebugkey"
+                keyPassword = System.getenv("TERMX_DEBUG_KEYSTORE_PASSWORD")
+            }
         }
     }
 

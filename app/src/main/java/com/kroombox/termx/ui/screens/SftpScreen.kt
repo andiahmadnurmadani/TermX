@@ -1,5 +1,6 @@
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.rounded.Close
 import android.content.ContentResolver
 import android.net.Uri
@@ -353,6 +354,7 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String
     var renaming by remember { mutableStateOf<RemoteEntry?>(null) }
     var deleting by remember { mutableStateOf<RemoteEntry?>(null) }
     var newFile by remember { mutableStateOf(false) }
+    var topMenu by remember { mutableStateOf(false) }
     // Folder terakhir disimpan, agar kembali dari editor tidak melompat ke folder awal.
     var lastPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialPath) }
     LaunchedEffect(ctl.path) { if (ctl.path.isNotEmpty()) lastPath = ctl.path }
@@ -384,23 +386,43 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String
             TopAppBar(
                 title = {
                     Column {
-                        Text("SFTP", style = MaterialTheme.typography.titleMedium)
-                        Text(host?.label ?: "", style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
+                        Text("SFTP", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
+                        Text(
+                            host?.label ?: "", style = MaterialTheme.typography.labelMedium, color = Palette.TextDim,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 },
                 navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") } },
+                // Hanya aksi utama di bar; sisanya di menu ⋮ supaya judul tidak terdesak.
                 actions = {
-                    if (sessionId != null) {
-                        IconButton(onClick = { TermXApp.container.sessions.closeSftp(sessionId); nav.back() }) {
-                            Icon(Icons.Rounded.Close, "Tutup sesi SFTP")
-                        }
-                    }
-                    IconButton(onClick = { ctl.up() }) { Icon(Icons.Rounded.ArrowUpward, "Naik") }
                     IconButton(onClick = { ctl.refresh() }) { Icon(Icons.Rounded.Refresh, "Segarkan") }
                     IconButton(onClick = { newFile = true }) { Icon(Icons.AutoMirrored.Rounded.NoteAdd, "File baru") }
-                    IconButton(onClick = { newFolder = true }) { Icon(Icons.Rounded.CreateNewFolder, "Folder baru") }
-                    IconButton(onClick = { ctl.showHidden = !ctl.showHidden }) {
-                        Icon(Icons.Rounded.Visibility, "File tersembunyi", tint = if (ctl.showHidden) Palette.Accent else Palette.TextDim)
+                    Box {
+                        IconButton(onClick = { topMenu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
+                        DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Folder induk") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) },
+                                onClick = { topMenu = false; ctl.up() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Folder baru") }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) },
+                                onClick = { topMenu = false; newFolder = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (ctl.showHidden) "Sembunyikan file tersembunyi" else "Tampilkan file tersembunyi") },
+                                leadingIcon = { Icon(Icons.Rounded.Visibility, null, tint = if (ctl.showHidden) Palette.Accent else Palette.TextDim) },
+                                onClick = { topMenu = false; ctl.showHidden = !ctl.showHidden },
+                            )
+                            if (sessionId != null) {
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Tutup sesi SFTP", color = Palette.Danger) },
+                                    leadingIcon = { Icon(Icons.Rounded.Close, null, tint = Palette.Danger) },
+                                    onClick = { topMenu = false; TermXApp.container.sessions.closeSftp(sessionId); nav.back() },
+                                )
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
