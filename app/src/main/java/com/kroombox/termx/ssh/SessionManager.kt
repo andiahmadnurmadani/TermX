@@ -42,6 +42,9 @@ class SessionManager(private val context: Context, val vault: Vault) {
 
     val history = SessionHistory(context)
 
+    /** Diset dari notifikasi ("Putuskan semua…"); UI menampilkan konfirmasi. */
+    val disconnectRequested = MutableStateFlow(false)
+
     /** Naik setiap ada perubahan status sesi; UI meng-collect ini untuk menggambar ulang indikator. */
     private val _stateVersion = MutableStateFlow(0L)
     val stateVersion: StateFlow<Long> = _stateVersion.asStateFlow()

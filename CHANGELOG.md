@@ -3,6 +3,18 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.3.1] - 2026-10-12
+
+### Diubah
+- Ikon aplikasi: prompt `>_` diperkecil agar proporsional di launcher.
+- Tombol **Putuskan semua…** di notifikasi kini meminta konfirmasi di aplikasi, supaya sesi tidak terhapus karena salah ketuk.
+
+### Diperbaiki
+- Sesi tetap berjalan di latar belakang setelah aplikasi ditutup dari daftar aplikasi terbaru: service tidak ikut
+  berhenti, notifikasi tetap tampil, dan bila HP tetap mematikan prosesnya, service dijadwalkan hidup lagi dan
+  semua tab dipulihkan.
+- Sesi aktif dipulihkan otomatis setelah HP dinyalakan ulang atau aplikasi diperbarui.
+
 ## [0.3.0] - 2026-10-12
 
 ### Ditambahkan

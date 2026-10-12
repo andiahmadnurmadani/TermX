@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (savedInstanceState == null) TermXApp.container.startAutoForwards()
+        handleIntent(intent)
         setContent {
             TermXTheme {
                 AppRoot()
@@ -39,10 +40,25 @@ class MainActivity : ComponentActivity() {
         TermXApp.container.sessions.refreshService()
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: android.content.Intent?) {
+        if (intent?.action == ACTION_CONFIRM_DISCONNECT) {
+            TermXApp.container.sessions.disconnectRequested.value = true
+        }
+    }
+
     override fun onStop() {
         super.onStop()
         // Aplikasi ke latar belakang (atau akan ditutup): simpan riwayat layar semua tab sekarang.
         TermXApp.container.sessions.saveAllHistory()
+    }
+
+    companion object {
+        const val ACTION_CONFIRM_DISCONNECT = "com.kroombox.termx.CONFIRM_DISCONNECT"
     }
 
     fun setKeepScreenOn(on: Boolean) {

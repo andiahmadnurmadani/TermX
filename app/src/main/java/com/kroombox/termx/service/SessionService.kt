@@ -89,6 +89,18 @@ class SessionService : Service() {
         return START_STICKY
     }
 
+    /**
+     * Aplikasi ditutup dari daftar aplikasi terbaru. Sesi tetap berjalan (foreground service
+     * menahan proses), notifikasi tetap tampil. Sebagian merek HP tetap mematikan prosesnya; untuk
+     * itu service dijadwalkan hidup lagi sebentar kemudian, dan TermXApp memulihkan semua tab.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try { TermXApp.container.sessions.saveAllHistory() } catch (_: Exception) {}
+        postNotification()
+        scheduleRestart(this, 3_000)
+    }
+
     private fun postNotification() {
         try {
             getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification())
@@ -158,8 +170,12 @@ class SessionService : Service() {
             this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val disconnect = PendingIntent.getService(
-            this, 1, Intent(this, SessionService::class.java).setAction(ACTION_DISCONNECT_ALL),
+        // Memutus semua sesi adalah tindakan pengguna yang tidak bisa dibatalkan, jadi tombol di
+        // notifikasi membuka aplikasi untuk konfirmasi lebih dulu.
+        val disconnect = PendingIntent.getActivity(
+            this, 1,
+            Intent(this, MainActivity::class.java).setAction(MainActivity.ACTION_CONFIRM_DISCONNECT)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         // Android 14+ mengizinkan notifikasi foreground service diusap; munculkan lagi segera.
@@ -185,7 +201,7 @@ class SessionService : Service() {
             .setContentIntent(open)
             .setDeleteIntent(repost)
             .addAction(0, "Buka", open)
-            .addAction(0, "Putuskan semua", disconnect)
+            .addAction(0, "Putuskan semua…", disconnect)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
@@ -228,6 +244,25 @@ class SessionService : Service() {
                         setShowBadge(false)
                     },
                 )
+            }
+        }
+
+        /**
+         * Jadwalkan service dimulai lagi (bila proses sempat dimatikan sistem). Aman bila service
+         * masih hidup: onStartCommand hanya memperbarui notifikasi.
+         */
+        fun scheduleRestart(ctx: Context, delayMs: Long) {
+            try {
+                val am = ctx.getSystemService(android.app.AlarmManager::class.java) ?: return
+                val pi = PendingIntent.getForegroundService(
+                    ctx, 3, Intent(ctx, SessionService::class.java).setAction(ACTION_REPOST),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                am.setAndAllowWhileIdle(
+                    android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + delayMs, pi,
+                )
+            } catch (_: Exception) {
             }
         }
 

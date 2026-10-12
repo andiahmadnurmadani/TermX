@@ -137,6 +137,32 @@ fun AppRoot() {
 
     PromptHost()
     BatteryPrompt()
+    DisconnectAllPrompt()
+}
+
+@Composable
+private fun DisconnectAllPrompt() {
+    val mgr = TermXApp.container.sessions
+    val requested by mgr.disconnectRequested.collectAsState()
+    if (!requested) return
+    val sessions by mgr.sessions.collectAsState()
+    AlertDialog(
+        onDismissRequest = { mgr.disconnectRequested.value = false },
+        title = { Text("Putuskan semua sesi?") },
+        text = {
+            Text(
+                "${sessions.size} tab terminal dan semua port forward akan ditutup, dan notifikasi akan hilang. " +
+                    "Sesi tmux di server tetap berjalan dan bisa dibuka lagi dari tab Sesi.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                mgr.disconnectRequested.value = false
+                mgr.closeAll()
+            }) { Text("Putuskan semua", color = Palette.Danger, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = { mgr.disconnectRequested.value = false }) { Text("Batal") } },
+    )
 }
 
 /**
