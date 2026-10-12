@@ -3,6 +3,19 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.6.0] - 2026-10-12
+
+### Ditambahkan
+- **Text editor** layar penuh untuk file di server: nomor baris, font terminal, wrap bisa dinyalakan/dimatikan,
+  **Undo/Redo**, **Cari & Ganti** (berikutnya/sebelumnya/semua), **auto-indent** saat Enter, baris simbol koding di atas
+  keyboard (Tab, `{ } [ ] ( ) < > / | ; : = " ' $ # ~ - _` …), ukuran huruf, penanda belum disimpan dan konfirmasi
+  saat keluar. File milik root bisa **dibuka/disimpan dengan sudo** bila izin ditolak.
+- Editor dibuka dari SFTP (ketuk file teks, menu **Lihat / edit**, atau **File baru**) dan dari menu terminal
+  (**Edit file…** dengan path, mis. `~/.bashrc` atau `/etc/nginx/nginx.conf`).
+
+### Diperbaiki
+- SFTP tetap di folder terakhir saat kembali dari layar lain.
+
 ## [0.5.0] - 2026-10-12
 
 ### Diubah

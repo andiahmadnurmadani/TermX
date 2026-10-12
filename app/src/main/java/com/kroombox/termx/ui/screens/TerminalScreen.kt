@@ -1,5 +1,8 @@
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Edit
 import com.kroombox.termx.ui.components.HostAvatar
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
@@ -141,6 +144,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
     var showSnippets by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
     var switcherTab by remember { mutableIntStateOf(0) }
+    var editPath by remember { mutableStateOf<String?>(null) }
     var confirmKill by remember { mutableStateOf<TerminalSession?>(null) }
     val viewHolder = remember { arrayOfNulls<TerminalView>(1) }
     val uiScope = rememberCoroutineScope()
@@ -198,6 +202,9 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     },
                 )
                 HorizontalDivider()
+                DropdownMenuItem(text = { Text("Edit file…") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = {
+                    dismiss(); editPath = "~/"
+                })
                 DropdownMenuItem(text = { Text("SFTP") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = {
                     dismiss(); nav.sftp(current.host.id)
                 })
@@ -340,6 +347,32 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             },
             onPaste = { clipboardText(context)?.let { viewHolder[0]?.paste(it) } },
             onSnippets = { showSnippets = true },
+        )
+    }
+
+    editPath?.let { initial ->
+        var p by remember { mutableStateOf(initial) }
+        AlertDialog(
+            onDismissRequest = { editPath = null },
+            title = { Text("Edit file") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        p, { p = it }, label = { Text("Path file di ${current.host.label}") }, singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = Mono),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text("Contoh: ~/.bashrc, /etc/nginx/nginx.conf. File yang belum ada akan dibuat saat disimpan.",
+                        style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = p.isNotBlank() && !p.endsWith("/"), onClick = {
+                    editPath = null
+                    nav.editor(current.host.id, p.trim())
+                }) { Text("Buka") }
+            },
+            dismissButton = { TextButton(onClick = { editPath = null }) { Text("Batal") } },
         )
     }
 

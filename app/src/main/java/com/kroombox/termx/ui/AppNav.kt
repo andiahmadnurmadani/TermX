@@ -52,6 +52,7 @@ import com.kroombox.termx.ssh.Prompt
 import com.kroombox.termx.ssh.Prompts
 import com.kroombox.termx.ssh.SessionState
 import com.kroombox.termx.ui.components.PasswordField
+import com.kroombox.termx.ui.screens.EditorScreen
 import com.kroombox.termx.ui.screens.ForwardsScreen
 import com.kroombox.termx.ui.screens.HostEditScreen
 import com.kroombox.termx.ui.screens.HostsScreen
@@ -72,6 +73,7 @@ object Routes {
     const val HOST_EDIT = "host_edit?id={id}"
     const val TERMINAL = "terminal?session={session}"
     const val SFTP = "sftp/{hostId}?path={path}"
+    const val EDITOR = "editor/{hostId}?path={path}&new={new}"
     const val MONITOR = "monitor/{hostId}"
     const val FORWARDS = "forwards?hostId={hostId}"
     const val KNOWN_HOSTS = "known_hosts"
@@ -80,6 +82,8 @@ object Routes {
     fun hostEdit(id: String? = null) = if (id == null) "host_edit" else "host_edit?id=$id"
     fun terminal(sessionId: String) = "terminal?session=$sessionId"
     fun sftp(hostId: String, path: String? = null) = if (path == null) "sftp/$hostId" else "sftp/$hostId?path=${android.net.Uri.encode(path)}"
+    fun editor(hostId: String, path: String, isNew: Boolean = false) =
+        "editor/$hostId?path=${android.net.Uri.encode(path)}&new=$isNew"
     fun monitor(hostId: String) = "monitor/$hostId"
     fun forwards(hostId: String? = null) = if (hostId == null) "forwards" else "forwards?hostId=$hostId"
 }
@@ -90,6 +94,7 @@ class Nav(private val nav: NavHostController) {
     fun editHost(id: String? = null) = nav.navigate(Routes.hostEdit(id))
     fun terminal(sessionId: String) = nav.navigate(Routes.terminal(sessionId)) { launchSingleTop = true }
     fun sftp(hostId: String, path: String? = null) = nav.navigate(Routes.sftp(hostId, path))
+    fun editor(hostId: String, path: String, isNew: Boolean = false) = nav.navigate(Routes.editor(hostId, path, isNew))
     fun monitor(hostId: String) = nav.navigate(Routes.monitor(hostId))
     fun forwards(hostId: String? = null) = nav.navigate(Routes.forwards(hostId))
     fun knownHosts() = nav.navigate(Routes.KNOWN_HOSTS)
@@ -130,6 +135,19 @@ fun AppRoot() {
                 navArgument("path") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { SftpScreen(nav, it.arguments?.getString("hostId") ?: "", it.arguments?.getString("path")) }
+        composable(
+            Routes.EDITOR,
+            arguments = listOf(
+                navArgument("hostId") { type = NavType.StringType },
+                navArgument("path") { type = NavType.StringType; defaultValue = "~" },
+                navArgument("new") { type = NavType.BoolType; defaultValue = false },
+            ),
+        ) {
+            EditorScreen(
+                nav, it.arguments?.getString("hostId") ?: "", it.arguments?.getString("path") ?: "~",
+                it.arguments?.getBoolean("new") ?: false,
+            )
+        }
         composable(Routes.MONITOR, arguments = listOf(navArgument("hostId") { type = NavType.StringType })) {
             MonitorScreen(nav, it.arguments?.getString("hostId") ?: "")
         }

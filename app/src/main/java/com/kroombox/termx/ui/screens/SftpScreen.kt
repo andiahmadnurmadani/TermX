@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -350,9 +351,12 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?) {
     var newFolder by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<RemoteEntry?>(null) }
     var deleting by remember { mutableStateOf<RemoteEntry?>(null) }
-    var editing by remember { mutableStateOf<Pair<RemoteEntry, String>?>(null) }
+    var newFile by remember { mutableStateOf(false) }
+    // Folder terakhir disimpan, agar kembali dari editor tidak melompat ke folder awal.
+    var lastPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialPath) }
+    LaunchedEffect(ctl.path) { if (ctl.path.isNotEmpty()) lastPath = ctl.path }
 
-    LaunchedEffect(hostId) { ctl.open(initialPath) }
+    LaunchedEffect(hostId) { ctl.open(lastPath) }
     DisposableEffect(hostId) { onDispose { ctl.close() } }
     LaunchedEffect(toast) {
         toast?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show(); toast = null }
@@ -380,6 +384,7 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?) {
                 actions = {
                     IconButton(onClick = { ctl.up() }) { Icon(Icons.Rounded.ArrowUpward, "Naik") }
                     IconButton(onClick = { ctl.refresh() }) { Icon(Icons.Rounded.Refresh, "Segarkan") }
+                    IconButton(onClick = { newFile = true }) { Icon(Icons.AutoMirrored.Rounded.NoteAdd, "File baru") }
                     IconButton(onClick = { newFolder = true }) { Icon(Icons.Rounded.CreateNewFolder, "Folder baru") }
                     IconButton(onClick = { ctl.showHidden = !ctl.showHidden }) {
                         Icon(Icons.Rounded.Visibility, "File tersembunyi", tint = if (ctl.showHidden) Palette.Accent else Palette.TextDim)
@@ -412,9 +417,15 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?) {
                 items(visible, key = { it.path }) { e ->
                     EntryRow(
                         e,
-                        onOpen = { ctl.openEntry(e) { f -> pendingDownload = f; downloader.launch(f.name) } },
+                        // File teks/kecil dibuka di editor; file besar diunduh.
+                        onOpen = {
+                            ctl.openEntry(e) { f ->
+                                if (f.size <= 2L * 1024 * 1024) nav.editor(hostId, f.path)
+                                else { pendingDownload = f; downloader.launch(f.name) }
+                            }
+                        },
                         onDownload = { pendingDownload = e; downloader.launch(e.name) },
-                        onView = { ctl.readText(e) { text -> editing = e to text } },
+                        onView = { nav.editor(hostId, e.path) },
                         onRename = { renaming = e },
                         onDelete = { deleting = e },
                         onCopyPath = { copy(context, e.path) },
@@ -436,23 +447,8 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?) {
             onConfirm = { ctl.delete(e) }, onDismiss = { deleting = null },
         )
     }
-    editing?.let { (e, text) ->
-        var content by remember(e.path) { mutableStateOf(text) }
-        AlertDialog(
-            onDismissRequest = { editing = null },
-            title = { Text(e.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            text = {
-                OutlinedTextField(
-                    content, { content = it },
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    modifier = Modifier.fillMaxWidth().height(420.dp),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { editing = null; ctl.writeText(e, content) { toast = it } }) { Text("Simpan") }
-            },
-            dismissButton = { TextButton(onClick = { editing = null }) { Text("Tutup") } },
-        )
+    if (newFile) {
+        NameDialog("File baru", "", onDismiss = { newFile = false }) { name -> nav.editor(hostId, ctl.join(name), isNew = true) }
     }
 }
 
