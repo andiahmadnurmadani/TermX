@@ -200,6 +200,8 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
                     if (original?.passwordEnc != null) {
                         LabeledSwitch(stringResource(R.string.hostedit_keep_password), stringResource(R.string.hostedit_keep_password_sub), keepSavedPassword) { keepSavedPassword = it }
                     }
+                    // Satu password untuk SSH dan root/sudo: tidak perlu mengetik dua kali.
+                    LabeledSwitch(stringResource(R.string.hostedit_sudo_use_login), stringResource(R.string.hostedit_sudo_use_login_sub), sudoUseLogin) { sudoUseLogin = it }
                     Text(
                         stringResource(R.string.hostedit_password_note),
                         style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
@@ -225,8 +227,8 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
                     stringResource(R.string.hostedit_sudo_note),
                     style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                 )
-                if (authType == AuthType.PASSWORD) {
-                    LabeledSwitch(stringResource(R.string.hostedit_sudo_use_login), stringResource(R.string.hostedit_sudo_use_login_sub), sudoUseLogin) { sudoUseLogin = it }
+                if (authType == AuthType.PASSWORD && sudoUseLogin) {
+                    Text(stringResource(R.string.hostedit_sudo_same_hint), style = MaterialTheme.typography.bodySmall, color = Palette.Accent)
                 }
                 PasswordField(
                     sudoPassword, { sudoPassword = it },

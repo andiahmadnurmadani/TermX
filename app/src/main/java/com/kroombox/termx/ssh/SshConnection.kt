@@ -117,6 +117,8 @@ class SshConnection(
                 } catch (e: UserAuthException) {
                     throw SshException(S.get(R.string.ssh_auth_failed_password), e, fatal = true)
                 }
+                // Diingat di memori (tidak disimpan) untuk sudo/su bila password SSH = password root.
+                com.kroombox.termx.TermXApp.container.sessions.rememberLoginPassword(host.id, password)
                 if (save) {
                     val enc = SecretBox.encrypt(password)
                     vault.saveHost((vault.host(host.id) ?: host).copy(passwordEnc = enc))

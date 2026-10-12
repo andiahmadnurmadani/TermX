@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- @@STRINGS@@ -->
+    <string name="hostedit_sudo_same_hint">Password SSH dipakai untuk sudo (diatur di Autentikasi). Isi password sudo di bawah hanya bila berbeda.</string>
     <string name="common_cancel">Batal</string>
     <string name="common_days_ago">%1$d hari lalu</string>
     <string name="common_dur_days_hours">%1$dh %2$dj</string>
@@ -139,8 +140,8 @@
     <string name="hostedit_sudo_password_optional">Password sudo (opsional)</string>
     <string name="hostedit_sudo_password_placeholder">Kosongkan untuk ditanya saat dibutuhkan</string>
     <string name="hostedit_sudo_password_saved">Password sudo (tersimpan — isi untuk mengganti)</string>
-    <string name="hostedit_sudo_use_login">Pakai password login untuk sudo</string>
-    <string name="hostedit_sudo_use_login_sub">Bila password sudo di bawah kosong</string>
+    <string name="hostedit_sudo_use_login">Password SSH ini juga password root/sudo</string>
+    <string name="hostedit_sudo_use_login_sub">Prompt sudo dan su diisi dengan password ini, jadi tidak perlu mengetik dua kali. Dipakai bila password sudo terpisah tidak diisi.</string>
     <string name="hostedit_tags">Tag (pisahkan dengan koma)</string>
     <string name="hostedit_title_edit">Edit host</string>
     <string name="hostedit_title_new">Host baru</string>

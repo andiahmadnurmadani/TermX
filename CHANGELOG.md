@@ -3,6 +3,13 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.8.1] - 2026-10-12
+
+### Added
+- **"SSH password is also the root/sudo password"** toggle right under the password field (on by default). The
+  password typed at login is remembered in memory (never stored unless you choose to save it) and used for sudo, so
+  you don't type it twice. It also fills the `Password:` prompt right after **you** run `su` / `su -`.
+
 ## [0.8.0] - 2026-10-12
 
 ### Added

@@ -83,6 +83,12 @@ class TerminalSession(
         if (done.any { Sudo.invokesSudo(it) } && manager.vault.current.settings.sudoAutofill) {
             sudoArmedUntil = System.currentTimeMillis() + 15_000
         }
+        // `su`: prompt "Password:" berikutnya diisi password login bila host ditandai "password SSH = root".
+        if (done.any { Sudo.invokesSu(it) } && manager.vault.current.settings.sudoAutofill &&
+            (manager.vault.host(host.id)?.sudoUseLoginPassword == true)
+        ) {
+            suArmedUntil = System.currentTimeMillis() + 15_000
+        }
         if (done.isNotEmpty()) {
             // Simpan ke riwayat hanya bila perintahnya terlihat di layar (ter-echo). Yang tidak tampil
             // (password, input rahasia) tidak pernah disimpan.
@@ -250,6 +256,8 @@ class TerminalSession(
     @Volatile private var sudoArmedUntil = 0L
     /** Dipersenjatai oleh snippet sudo (bukan sudo yang diketik). */
     @Volatile private var armedBySnippet = false
+    /** Dipersenjatai saat pengguna menjalankan `su` (lihat [typed]). */
+    @Volatile private var suArmedUntil = 0L
     private val recent = StringBuilder()
 
     /**
@@ -299,6 +307,15 @@ class TerminalSession(
         // Hanya diisi otomatis bila pengguna sendiri baru menjalankan sudo (Enter pada baris berisi sudo,
         // atau snippet sudo) DAN prompt-nya prompt sudo untuk user host ini. Teks yang mirip prompt dari
         // program lain (cat file, skrip, server) tidak pernah memicu pengetikan password.
+        // `su` yang baru dijalankan pengguna: isi password login (= password root) sekali.
+        if (suArmedUntil != 0L && now <= suArmedUntil && now > autofillPausedUntil && !Sudo.isSudoPromptFor(tail, "")) {
+            suArmedUntil = 0L
+            val pw = manager.loginPassword(host.id)
+            if (pw != null) {
+                write((pw + "\r").toByteArray())
+                return
+            }
+        }
         val armed = sudoArmedUntil != 0L && now <= sudoArmedUntil
         val sudoPromptForUser = Sudo.isSudoPromptFor(tail, host.username) || Sudo.isPasswordPrompt(tail) && armedBySnippet
         val auto = armed && sudoPromptForUser && now > autofillPausedUntil

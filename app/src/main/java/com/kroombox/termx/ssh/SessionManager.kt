@@ -353,11 +353,27 @@ class SessionManager(private val context: Context, val vault: Vault) {
         }
     }
 
-    /** Password sudo tersimpan untuk host: password sudo khusus, atau password login bila diizinkan. */
+    /**
+     * Password login yang diketik saat konek (tidak disimpan), diingat di memori selama proses hidup,
+     * supaya "password SSH = password root/sudo" tidak memaksa mengetik dua kali.
+     */
+    private val loginPasswords = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun rememberLoginPassword(hostId: String, password: String) {
+        loginPasswords[hostId] = password
+    }
+
+    /** Password login host: yang tersimpan terenkripsi, atau yang diketik di sesi ini. */
+    fun loginPassword(hostId: String): String? {
+        val h = vault.host(hostId) ?: return null
+        return SecretBox.decryptOrNull(h.passwordEnc) ?: loginPasswords[hostId]
+    }
+
+    /** Password sudo untuk host: password sudo khusus, atau password login bila "sama dengan root/sudo". */
     fun storedSudoPassword(hostId: String): String? {
         val h = vault.host(hostId) ?: return null
         SecretBox.decryptOrNull(h.sudoPasswordEnc)?.let { return it }
-        if (h.sudoUseLoginPassword) SecretBox.decryptOrNull(h.passwordEnc)?.let { return it }
+        if (h.sudoUseLoginPassword) loginPassword(hostId)?.let { return it }
         return null
     }
 

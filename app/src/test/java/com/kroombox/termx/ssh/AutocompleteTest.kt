@@ -62,4 +62,13 @@ class AutocompleteTest {
         assertFalse(Sudo.invokesSudo("echo pseudo"))
         assertFalse(Sudo.invokesSudo("grep sudo /var/log/auth.log"))
     }
+
+    @Test fun detectsUserInvokedSu() {
+        assertTrue(Sudo.invokesSu("su"))
+        assertTrue(Sudo.invokesSu("su -"))
+        assertTrue(Sudo.invokesSu("cd / && su - root"))
+        assertFalse(Sudo.invokesSu("sudo ls"))
+        assertFalse(Sudo.invokesSu("cat summary.txt"))
+        assertFalse(Sudo.invokesSu("echo sum"))
+    }
 }

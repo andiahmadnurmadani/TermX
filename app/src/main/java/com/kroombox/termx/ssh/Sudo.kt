@@ -64,6 +64,11 @@ object Sudo {
     /** Baris perintah yang menjalankan sudo (mis. `sudo apt update`, `cd x && sudo make install`). */
     fun invokesSudo(line: String): Boolean = INVOKES_SUDO.containsMatchIn(line.trim())
 
+    private val INVOKES_SU = Regex("(^|[;&|(]\\s*|\\bexec\\s+)su(\\s|$)")
+
+    /** Baris perintah yang menjalankan `su` (mis. `su`, `su -`, `su - root`). */
+    fun invokesSu(line: String): Boolean = INVOKES_SU.containsMatchIn(line.trim())
+
     /** Hasil stderr sudo yang berarti password diperlukan (mode -n). */
     fun needsPassword(stderr: String): Boolean {
         val e = stderr.lowercase()

@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name" translatable="false">TermX</string>
     <!-- @@STRINGS@@ -->
+    <string name="hostedit_sudo_same_hint">The SSH password is used for sudo (set in Authentication). Fill in a sudo password below only if it differs.</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_days_ago">%1$d days ago</string>
     <string name="common_dur_days_hours">%1$dd %2$dh</string>
@@ -140,8 +141,8 @@
     <string name="hostedit_sudo_password_optional">Sudo password (optional)</string>
     <string name="hostedit_sudo_password_placeholder">Leave empty to be asked when needed</string>
     <string name="hostedit_sudo_password_saved">Sudo password (saved — type to replace)</string>
-    <string name="hostedit_sudo_use_login">Use login password for sudo</string>
-    <string name="hostedit_sudo_use_login_sub">When the sudo password below is empty</string>
+    <string name="hostedit_sudo_use_login">SSH password is also the root/sudo password</string>
+    <string name="hostedit_sudo_use_login_sub">Fills sudo and su prompts with this password, so you don\'t type it twice. Used when no separate sudo password is set.</string>
     <string name="hostedit_tags">Tags (comma-separated)</string>
     <string name="hostedit_title_edit">Edit host</string>
     <string name="hostedit_title_new">New host</string>
