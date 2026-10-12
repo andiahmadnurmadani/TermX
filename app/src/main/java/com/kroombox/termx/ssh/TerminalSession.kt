@@ -75,6 +75,11 @@ class TerminalSession(
             _inputLine.value = tracker.line
             d
         }
+        // Pengguna sendiri baru saja menjalankan sudo: prompt password berikutnya (dalam 15 detik)
+        // boleh diisi otomatis. Teks prompt di layar saja tidak cukup — itu bisa dicetak program apa pun.
+        if (done.any { Sudo.invokesSudo(it) } && manager.vault.current.settings.sudoAutofill) {
+            sudoArmedUntil = System.currentTimeMillis() + 15_000
+        }
         if (done.isNotEmpty()) {
             // Simpan ke riwayat hanya bila perintahnya terlihat di layar (ter-echo). Yang tidak tampil
             // (password, input rahasia) tidak pernah disimpan.
@@ -241,6 +246,8 @@ class TerminalSession(
 
     // ------------------------------------------------------------------ Snippet & sudo
     @Volatile private var sudoArmedUntil = 0L
+    /** Dipersenjatai oleh snippet sudo (bukan sudo yang diketik). */
+    @Volatile private var armedBySnippet = false
     private val recent = StringBuilder()
 
     /**
@@ -252,6 +259,7 @@ class TerminalSession(
         val cmd = if (sudo) Sudo.wrap(command) else command
         if (sudo && autoRun) {
             synchronized(recent) { recent.setLength(0) }
+            armedBySnippet = true
             sudoArmedUntil = System.currentTimeMillis() + 20_000
         }
         typed((cmd + if (autoRun) "\r" else "").toByteArray())
@@ -286,14 +294,19 @@ class TerminalSession(
         promptHandled = true
         val now = System.currentTimeMillis()
         if (Sudo.wrongPassword(tail)) autofillPausedUntil = now + 60_000
+        // Hanya diisi otomatis bila pengguna sendiri baru menjalankan sudo (Enter pada baris berisi sudo,
+        // atau snippet sudo) DAN prompt-nya prompt sudo untuk user host ini. Teks yang mirip prompt dari
+        // program lain (cat file, skrip, server) tidak pernah memicu pengetikan password.
         val armed = sudoArmedUntil != 0L && now <= sudoArmedUntil
-        sudoArmedUntil = 0L
-        val sudoPromptForUser = Sudo.isSudoPromptFor(tail, host.username)
-        val auto = (armed || (sudoPromptForUser && manager.vault.current.settings.sudoAutofill)) && now > autofillPausedUntil
+        val sudoPromptForUser = Sudo.isSudoPromptFor(tail, host.username) || Sudo.isPasswordPrompt(tail) && armedBySnippet
+        val auto = armed && sudoPromptForUser && now > autofillPausedUntil
+        if (auto) sudoArmedUntil = 0L
         if (auto) {
             scope.launch(Dispatchers.IO) {
                 // Snippet sudo boleh menanyakan password; pengisian otomatis biasa hanya memakai yang tersimpan.
-                val pw = if (armed) manager.sudoPassword(host.id, ask = true) else manager.storedSudoPassword(host.id)
+                // Snippet sudo boleh menanyakan password; sudo yang diketik memakai password tersimpan.
+                val pw = if (armedBySnippet) manager.sudoPassword(host.id, ask = true) else manager.storedSudoPassword(host.id)
+                armedBySnippet = false
                 if (pw != null) write((pw + "\r").toByteArray()) else _passwordPrompt.value = true
             }
         } else {

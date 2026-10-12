@@ -210,7 +210,7 @@ fun SettingsScreen(nav: Nav) {
                 ) { v -> vault.updateSettings { it.copy(autocomplete = v) } }
                 LabeledSwitch(
                     "Isi otomatis password sudo",
-                    "Saat muncul \"[sudo] password for <user>\", password sudo host diketik otomatis. Prompt lain hanya menampilkan tombol isi.",
+                    "Setelah Anda menjalankan sudo, prompt \"[sudo] password for <user>\" diisi otomatis dengan password sudo host. Prompt lain hanya menampilkan tombol isi.",
                     s.sudoAutofill,
                 ) { v -> vault.updateSettings { it.copy(sudoAutofill = v) } }
                 var cleared by remember { mutableStateOf(false) }

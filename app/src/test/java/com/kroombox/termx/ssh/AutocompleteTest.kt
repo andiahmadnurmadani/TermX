@@ -53,4 +53,13 @@ class AutocompleteTest {
         assertFalse(Sudo.isSudoPromptFor("[sudo] password for root: ", "andi"))
         assertFalse(Sudo.isSudoPromptFor("Password: ", "andi"))
     }
+
+    @Test fun detectsUserInvokedSudo() {
+        assertTrue(Sudo.invokesSudo("sudo apt update"))
+        assertTrue(Sudo.invokesSudo("cd /srv && sudo make install"))
+        assertTrue(Sudo.invokesSudo("sudo -i"))
+        assertFalse(Sudo.invokesSudo("cat sudoers.txt"))
+        assertFalse(Sudo.invokesSudo("echo pseudo"))
+        assertFalse(Sudo.invokesSudo("grep sudo /var/log/auth.log"))
+    }
 }

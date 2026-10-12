@@ -3,6 +3,14 @@
 Semua perubahan penting TermX dicatat di sini. Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/),
 versi mengikuti [Semantic Versioning](https://semver.org/lang/id/). Rilis dibuat dari tag `vX.Y.Z`.
 
+## [0.4.1] - 2026-10-12
+
+### Keamanan
+- Isi otomatis password sudo kini hanya berjalan bila **Anda sendiri** baru saja menjalankan `sudo` (Enter pada baris
+  berisi `sudo` dalam 15 detik terakhir, atau snippet sudo). Teks yang mirip prompt sudo dari program lain
+  (`cat` file, skrip, output server) tidak lagi memicu pengetikan password; yang muncul hanya tombol
+  **Isi password sudo**.
+
 ## [0.4.0] - 2026-10-12
 
 ### Ditambahkan
