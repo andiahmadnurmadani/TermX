@@ -30,9 +30,9 @@ object Tmux {
             " && tmux send-keys -t $n \"\$(echo $b64 | base64 -d 2>/dev/null || echo $b64 | base64 -D)\" Enter"
         } else ""
         val script = "$PATH_FIX if command -v tmux >/dev/null 2>&1; then " +
-            "tmux has-session -t $n 2>/dev/null || { tmux new-session -d -s $n$sendStartup; }; " +
+            "tmux has-session -t $n 2>/dev/null || { tmux start-server \\; set-option -gq history-limit 50000; tmux new-session -d -s $n$sendStartup; }; " +
             "exec tmux attach-session -t $n$mouseOpt; " +
-            "else echo \"[TermX] tmux tidak ditemukan di server - memakai shell biasa (sesi tidak persisten).\"; " +
+            "else echo \"[tmux tidak ditemukan di server - memakai shell biasa (sesi tidak persisten)]\"; " +
             "exec \"\${SHELL:-/bin/sh}\" -l; fi"
         return "sh -c '$script'"
     }

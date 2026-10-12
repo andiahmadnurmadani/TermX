@@ -1,6 +1,8 @@
 package com.kroombox.termx.ui.screens
 
 import com.kroombox.termx.os.OsCatalog
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.TextButton
 import com.kroombox.termx.ui.components.HostAvatar
 import com.kroombox.termx.ui.components.IconPicker
 import androidx.compose.foundation.background
@@ -91,6 +93,8 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
     var startup by remember { mutableStateOf(original?.startupCommand ?: "") }
     var notes by remember { mutableStateOf(original?.notes ?: "") }
     var icon by remember { mutableStateOf(original?.icon ?: "auto") }
+    var pickIcon by remember { mutableStateOf(false) }
+    var redetect by remember { mutableStateOf(false) }
     var sudoPassword by remember { mutableStateOf("") }
     var keepSudoPassword by remember { mutableStateOf(original?.sudoPasswordEnc != null) }
     var sudoUseLogin by remember { mutableStateOf(original?.sudoUseLoginPassword ?: true) }
@@ -128,6 +132,8 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
             startupCommand = startup,
             notes = notes,
             icon = icon,
+            osId = if (redetect) null else base.osId,
+            osName = if (redetect) null else base.osName,
             sudoPasswordEnc = when {
                 sudoPassword.isNotEmpty() -> SecretBox.encrypt(sudoPassword)
                 keepSudoPassword -> original?.sudoPasswordEnc
@@ -233,11 +239,12 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
             SectionHeader("Sesi persisten (tmux)")
             AppCard {
                 LabeledSwitch(
-                    "Jalankan di tmux",
-                    "Proses tetap berjalan di server saat HP terputus; tersambung lagi otomatis ke sesi yang sama.",
+                    "Selalu buka di tmux",
+                    "Mati (default): ketuk host = terminal biasa; tmux tetap bisa dipilih dari menu host, tab Sesi, atau menu terminal. " +
+                        "Di tmux, proses tetap berjalan di server saat HP terputus.",
                     persistent,
                 ) { persistent = it }
-                if (persistent) {
+                run {
                     OutlinedTextField(tmuxName, { tmuxName = it }, label = { Text("Nama sesi tmux") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     LabeledSwitch("Mouse tmux", "Geser layar untuk menggulir riwayat tmux", tmuxMouse) { tmuxMouse = it }
                 }
@@ -262,14 +269,27 @@ fun HostEditScreen(nav: Nav, hostId: String?) {
                             },
                             style = MaterialTheme.typography.titleSmall,
                         )
-                        original?.osName?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim) }
+                        if (redetect) {
+                            Text("OS akan dideteksi ulang saat konek berikutnya.", style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
+                        } else {
+                            original?.osName?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim) }
+                        }
+                        if (original?.osId != null && !redetect) {
+                            TextButton(onClick = { redetect = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                                Text("Deteksi ulang OS")
+                            }
+                        }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                IconPicker(
-                    selected = icon, onSelect = { icon = it }, accentColor = accent(colorIndex),
-                    allowAuto = true, autoLabel = "Otomatis (sesuai OS)",
-                )
+                TextButton(onClick = { pickIcon = !pickIcon }) {
+                    Text(if (pickIcon) "Tutup pilihan ikon" else "Ganti ikon")
+                }
+                AnimatedVisibility(pickIcon) {
+                    IconPicker(
+                        selected = icon, onSelect = { icon = it }, accentColor = accent(colorIndex),
+                        allowAuto = true, autoLabel = "Otomatis (sesuai OS)",
+                    )
+                }
             }
 
             SectionHeader("Organisasi")

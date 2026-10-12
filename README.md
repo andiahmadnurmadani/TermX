@@ -3,7 +3,8 @@
 <p align="center"><img src="docs/logo.png" width="128" alt="TermX"></p>
 
 Klien SSH Android bergaya modern (terinspirasi alur kerja Termius) dengan Kotlin + Jetpack Compose.
-Fitur andalannya adalah **sesi persisten**: shell dijalankan di dalam `tmux` di server. Program yang
+Ketuk host untuk membuka **terminal biasa**; pilih **Terminal tmux** (menu host, tab Sesi, atau menu
+terminal) untuk **sesi persisten**: shell dijalankan di dalam `tmux` di server. Program yang
 Anda jalankan (Claude Code, build panjang, `tail -f`, dsb.) tetap hidup di server walau HP terputus,
 layar mati, atau aplikasi ditutup. Saat tersambung lagi, aplikasi otomatis masuk ke sesi yang sama.
 
@@ -27,9 +28,23 @@ menutup tab.
 | **Keamanan** | Password & kunci privat dienkripsi AES-256-GCM dengan Android Keystore; verifikasi host key (TOFU, SHA256) dengan peringatan bila berubah; daftar known hosts |
 | **SFTP** | Jelajah, unggah/unduh (Storage Access Framework) dengan progres, buat folder, ganti nama, hapus rekursif, lihat/edit file teks kecil, file tersembunyi |
 | **Port forwarding** | Lokal (-L), remote (-R), dinamis/SOCKS5 (-D); mulai otomatis |
-| **Snippet** | Simpan perintah dengan ikon pilihan sendiri; opsi sudo; jalankan dari terminal (⚡) atau ke tab aktif mana pun |
+| **Snippet** | Kelola daftar perintah (ikon pilihan sendiri, opsi sudo) di tab Snippet; jalankan dari dalam terminal lewat ⚡ |
 | **Monitor** | CPU, RAM, swap, load, disk, jaringan, proses teratas, daftar container Docker; mode **sudo** untuk server yang butuh root (mis. Docker) — read-only, refresh 3 detik |
 | **Cadangan** | Ekspor/impor konfigurasi (tanpa rahasia) |
+
+## Versi & rilis
+
+- Versi mengikuti [SemVer](https://semver.org/lang/id/) dan dicatat di [`CHANGELOG.md`](CHANGELOG.md).
+- **Rilis resmi**: tambahkan entri di CHANGELOG, naikkan `termx.versionName`/`termx.versionCode` di
+  `gradle.properties`, lalu buat tag:
+  ```sh
+  git tag v0.3.0 && git push origin v0.3.0
+  ```
+  Workflow `release.yml` membangun APK rilis bertanda tangan (kunci di secret GitHub
+  `TERMX_KEYSTORE_B64` / `TERMX_KEYSTORE_PASSWORD`) dan membuat GitHub Release `TermX vX.Y.Z`
+  berisi `TermX-vX.Y.Z.apk`, checksum, dan catatan dari CHANGELOG. `versionCode = X*10000 + Y*100 + Z`.
+- **Build pengembangan**: setiap push ke `main` memperbarui pre-release `latest-debug` (aplikasi terpisah,
+  id `com.kroombox.termx.debug`).
 
 ## Membangun APK
 

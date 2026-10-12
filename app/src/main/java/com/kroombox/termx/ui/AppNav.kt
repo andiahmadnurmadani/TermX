@@ -157,7 +157,7 @@ private fun BatteryPrompt() {
         title = { Text("Jaga sesi tetap tersambung") },
         text = {
             Text(
-                "Agar sesi SSH tidak diputus Android saat layar mati atau aplikasi di latar belakang, izinkan TermX " +
+                "Agar sesi SSH tidak diputus Android saat layar mati atau aplikasi di latar belakang, izinkan aplikasi ini " +
                     "berjalan tanpa batasan baterai. Sesi hanya berakhir saat Anda sendiri memutuskannya.",
             )
         },

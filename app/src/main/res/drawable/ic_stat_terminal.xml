@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ikon status bar TermX: X dari dua chevron + kursor (siluet putih). -->
+<!-- Ikon status bar TermX: prompt ">_" (siluet putih). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -8,11 +8,11 @@
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.6"
+        android:strokeWidth="2.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M6,4.5 L12,11 L6,17.5 M18,4.5 L12,11 L18,17.5" />
+        android:pathData="M4.5,5 L11,12 L4.5,19" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M15,19.5h5.5a1.2,1.2 0,0 1,0 2.4h-5.5a1.2,1.2 0,0 1,0 -2.4z" />
+        android:pathData="M14,17.5h5.5a1.4,1.4 0,0 1,0 2.8h-5.5a1.4,1.4 0,0 1,0 -2.8z" />
 </vector>

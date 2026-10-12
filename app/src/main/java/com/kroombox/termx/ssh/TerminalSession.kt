@@ -1,6 +1,7 @@
 package com.kroombox.termx.ssh
 
 import com.kroombox.termx.data.Host
+import com.kroombox.termx.terminal.Banner
 import com.kroombox.termx.terminal.TerminalEmulator
 import com.kroombox.termx.terminal.TerminalListener
 import kotlinx.coroutines.CoroutineScope
@@ -58,6 +59,12 @@ class TerminalSession(
 
     val isPersistent: Boolean get() = tmuxName != null
 
+    /** Kunci file riwayat (lihat [SessionHistory]). */
+    var historyKey: String = ""
+
+    /** [screenVersion] saat riwayat terakhir disimpan. */
+    @Volatile var savedVersion = -1L
+
     val emulator = TerminalEmulator(80, 24, scrollback, object : TerminalListener {
         override fun onResponse(bytes: ByteArray) = write(bytes)
         override fun onScreenChanged() {
@@ -107,6 +114,18 @@ class TerminalSession(
                 val (s, _) = conn.openShell(cols, rows, command)
                 session = s
                 output = s.outputStream
+                if (!everConnected) {
+                    // OS sudah terdeteksi (dan tersimpan) saat koneksi dibuat; ambil host terbaru.
+                    host = manager.latestHost(host.id) ?: host
+                    emulator.append(
+                        Banner.render(
+                            userHost = host.address,
+                            osName = host.osName,
+                            mode = tmuxName?.let { "tmux: $it (persisten)" } ?: "terminal biasa",
+                            cols = emulator.cols,
+                        ).toByteArray(),
+                    )
+                }
                 setState(SessionState.CONNECTED)
                 _error.value = null
                 if (everConnected) emulator.append("\r\n\u001b[32m[Tersambung kembali]\u001b[0m\r\n".toByteArray())

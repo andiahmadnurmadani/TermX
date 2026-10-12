@@ -23,7 +23,7 @@ data class Host(
     val tags: List<String> = emptyList(),
     val colorIndex: Int = 0,
     /** Sesi persisten: shell dijalankan di dalam tmux supaya tetap hidup di server. */
-    val persistentSession: Boolean = true,
+    val persistentSession: Boolean = false,
     val tmuxSessionName: String = "termx",
     /** Aktifkan mouse tmux supaya geser layar menggulir riwayat tmux. */
     val tmuxMouse: Boolean = true,
@@ -129,7 +129,7 @@ data class AppSettings(
     val scrollbackLines: Int = 5000,
     val keepScreenOn: Boolean = true,
     val vibrateOnBell: Boolean = true,
-    val defaultPersistent: Boolean = true,
+    val defaultPersistent: Boolean = false,
     /** Wake-lock + Wi-Fi lock selama ada sesi, agar koneksi tidak dibekukan saat layar mati. */
     val keepAliveInBackground: Boolean = true,
     /** Dialog izin "tanpa batasan baterai" sudah pernah ditampilkan. */
@@ -153,7 +153,8 @@ data class CustomFont(
 
 @Serializable
 data class VaultData(
-    val version: Int = 1,
+    /** 2: ketuk host = terminal biasa (tmux jadi pilihan). */
+    val version: Int = 2,
     val hosts: List<Host> = emptyList(),
     val groups: List<HostGroup> = emptyList(),
     val keys: List<SshKey> = emptyList(),
@@ -166,6 +167,8 @@ data class VaultData(
      * dibuka lagi otomatis (dan attach ke tmux yang sama) sampai pengguna sendiri memutuskannya.
      */
     val openSessions: List<SavedSession> = emptyList(),
+    /** Tab yang baru ditutup (terbaru dulu), untuk dibuka lagi dari tab Sesi beserta riwayatnya. */
+    val recentSessions: List<SavedSession> = emptyList(),
 )
 
 @Serializable
@@ -173,6 +176,7 @@ data class SavedSession(
     val hostId: String,
     /** Nama sesi tmux; null = shell biasa. */
     val tmuxName: String? = null,
+    val closedAt: Long = 0,
 )
 
 fun defaultSnippets(): List<Snippet> = listOf(

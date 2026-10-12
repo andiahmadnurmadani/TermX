@@ -31,7 +31,7 @@ class Vault(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeLock = Mutex()
 
-    private val _data = MutableStateFlow(load())
+    private val _data = MutableStateFlow(migrate(load()))
     val data: StateFlow<VaultData> = _data.asStateFlow()
 
     val current: VaultData get() = _data.value
@@ -47,6 +47,34 @@ class Vault(context: Context) {
         } catch (_: Exception) {
         }
         VaultData()
+    }
+
+    /**
+     * Migrasi data lama. v2: default konek menjadi terminal biasa — host yang dibuat dengan default
+     * tmux lama dikembalikan ke terminal biasa (tmux tetap bisa dipilih dari menu).
+     */
+    private fun migrate(d: VaultData): VaultData {
+        if (d.version >= 2) return d
+        val m = d.copy(
+            version = 2,
+            hosts = d.hosts.map { it.copy(persistentSession = false) },
+            settings = d.settings.copy(defaultPersistent = false),
+        )
+        scope.launch { persistNow(m) }
+        return m
+    }
+
+    private suspend fun persistNow(d: VaultData) {
+        writeLock.withLock {
+            val bytes = json.encodeToString(d).toByteArray(Charsets.UTF_8)
+            val out = file.startWrite()
+            try {
+                out.write(bytes)
+                file.finishWrite(out)
+            } catch (e: Exception) {
+                file.failWrite(out)
+            }
+        }
     }
 
     fun update(transform: (VaultData) -> VaultData) {
@@ -157,6 +185,7 @@ class Vault(context: Context) {
             hosts = d.hosts.map { it.copy(passwordEnc = null, sudoPasswordEnc = null) },
             keys = emptyList(),
             openSessions = emptyList(),
+            recentSessions = emptyList(),
         )
         return Json { prettyPrint = true; encodeDefaults = true }.encodeToString(clean)
     }

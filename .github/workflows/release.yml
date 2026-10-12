@@ -1,0 +1,80 @@
+name: Release
+
+# Rilis resmi: push tag "vX.Y.Z" (mis. `git tag v0.3.0 && git push origin v0.3.0`).
+# Membangun APK rilis bertanda tangan kunci TermX (secret), lalu membuat GitHub Release
+# dengan catatan dari CHANGELOG.md.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versi dari tag
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          IFS=. read -r MA MI PA <<< "${VER%%-*}"
+          CODE=$((MA * 10000 + MI * 100 + PA))
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$VER" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Versi $VER (code $CODE)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Kunci rilis
+        env:
+          KEYSTORE_B64: ${{ secrets.TERMX_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "Secret TERMX_KEYSTORE_B64 belum diisi"; exit 1; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/termx-release.p12"
+          echo "TERMX_KEYSTORE_FILE=$RUNNER_TEMP/termx-release.p12" >> "$GITHUB_ENV"
+
+      - name: Unit test + build release APK
+        env:
+          TERMX_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          TERMX_VERSION_CODE: ${{ steps.ver.outputs.code }}
+          TERMX_KEYSTORE_PASSWORD: ${{ secrets.TERMX_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace testReleaseUnitTest assembleRelease
+          APK=$(ls app/build/outputs/apk/release/*.apk | grep -v unsigned | head -1)
+          test -n "$APK" || { echo "APK rilis tidak bertanda tangan"; exit 1; }
+          cp "$APK" "TermX-${{ steps.ver.outputs.tag }}.apk"
+          sha256sum "TermX-${{ steps.ver.outputs.tag }}.apk" > "TermX-${{ steps.ver.outputs.tag }}.apk.sha256"
+
+      - name: Catatan rilis dari CHANGELOG.md
+        run: |
+          VER="${{ steps.ver.outputs.name }}"
+          awk -v v="$VER" '
+            /^## / { if (found) exit; if (index($0, "[" v "]")) { found=1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "Rilis $VER." > notes.md; fi
+          printf '\n---\nPasang di Android 8.0+. Versi berikutnya bisa dipasang menimpa versi ini (data tetap).\n' >> notes.md
+          cat notes.md
+
+      - name: Buat GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          gh release delete "$TAG" -y || true
+          gh release create "$TAG" "TermX-$TAG.apk" "TermX-$TAG.apk.sha256" \
+            --title "TermX $TAG" --notes-file notes.md --verify-tag --latest

@@ -4,7 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -239,6 +245,9 @@ fun IconPicker(
 ) {
     val sel = IconSpec.parse(selected)
     var emoji by remember { mutableStateOf((sel as? IconSpec.Emoji)?.text ?: "") }
+    // Grup dilipat secara default; yang berisi pilihan saat ini dibuka.
+    var osOpen by remember { mutableStateOf(sel is IconSpec.Os) }
+    var iconOpen by remember { mutableStateOf(sel is IconSpec.Material) }
 
     @Composable
     fun Cell(spec: String, isSelected: Boolean, content: @Composable () -> Unit) {
@@ -261,25 +270,32 @@ fun IconPicker(
             Spacer(Modifier.height(12.dp))
         }
         if (showOs) {
-            Text("Logo OS", style = MaterialTheme.typography.labelLarge, color = Palette.TextDim)
-            Spacer(Modifier.height(6.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                OsCatalog.all.forEach { os ->
-                    val spec = "os:${os.id}"
-                    Cell(spec, selected == spec) { SpecAvatar(spec, os.title, accentColor, size = 40.dp) }
+            GroupHeader("Logo OS", OsCatalog.all.size, osOpen) { osOpen = !osOpen }
+            AnimatedVisibility(osOpen) {
+                FlowRow(
+                    Modifier.padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    OsCatalog.all.forEach { os ->
+                        val spec = "os:${os.id}"
+                        Cell(spec, selected == spec) { SpecAvatar(spec, os.title, accentColor, size = 40.dp) }
+                    }
                 }
             }
-            Spacer(Modifier.height(12.dp))
         }
-        Text("Ikon", style = MaterialTheme.typography.labelLarge, color = Palette.TextDim)
-        Spacer(Modifier.height(6.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            AppIcons.all.forEach { (key, _) ->
-                val spec = "mi:$key"
-                Cell(spec, selected == spec) { SpecAvatar(spec, key, accentColor, size = 40.dp) }
+        GroupHeader("Ikon", AppIcons.all.size, iconOpen) { iconOpen = !iconOpen }
+        AnimatedVisibility(iconOpen) {
+            FlowRow(
+                Modifier.padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                AppIcons.all.forEach { (key, _) ->
+                    val spec = "mi:$key"
+                    Cell(spec, selected == spec) { SpecAvatar(spec, key, accentColor, size = 40.dp) }
+                }
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = emoji,
             onValueChange = { v ->
@@ -290,6 +306,22 @@ fun IconPicker(
             placeholder = { Text("mis. 🚀") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun GroupHeader(title: String, count: Int, open: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onToggle).padding(vertical = 10.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        Text("$count", style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
+        Spacer(Modifier.width(6.dp))
+        Icon(
+            if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            contentDescription = if (open) "Tutup" else "Buka", tint = Palette.TextDim,
         )
     }
 }

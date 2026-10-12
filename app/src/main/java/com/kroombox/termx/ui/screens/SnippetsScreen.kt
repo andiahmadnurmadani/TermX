@@ -72,7 +72,7 @@ fun SnippetsScreen(modifier: Modifier = Modifier) {
             item {
                 Text("Snippet", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Perintah yang sering dipakai. Jalankan dari ikon ⚡ di layar terminal, atau langsung ke tab aktif di sini. Snippet bertanda sudo mengetik password sudo otomatis saat diminta.",
+                    "Kelola daftar perintah di sini. Untuk menjalankannya, buka terminal lalu ketuk ⚡ (di bar atas atau bar tombol bawah). Snippet bertanda sudo mengetik password sudo otomatis saat diminta.",
                     style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim,
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                 )
@@ -103,10 +103,6 @@ fun SnippetsScreen(modifier: Modifier = Modifier) {
 
 @Composable
 private fun SnippetCard(sn: Snippet, onEdit: () -> Unit) {
-    val sessions by TermXApp.container.sessions.sessions.collectAsState()
-    val stateVersion by TermXApp.container.sessions.stateVersion.collectAsState()
-    val live = remember(sessions, stateVersion) { sessions.filter { it.state.value == SessionState.CONNECTED } }
-    var runMenu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     AppCard(onClick = onEdit, contentPadding = PaddingValues(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -123,22 +119,6 @@ private fun SnippetCard(sn: Snippet, onEdit: () -> Unit) {
                 if (sn.description.isNotBlank()) Text(sn.description, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
                 Spacer(Modifier.height(4.dp))
                 Text(sn.command, fontFamily = Mono, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            }
-            Box {
-                IconButton(onClick = { runMenu = true }, enabled = live.isNotEmpty()) {
-                    Icon(Icons.Rounded.PlayArrow, "Jalankan", tint = if (live.isNotEmpty()) Palette.Accent else Palette.TextDim)
-                }
-                DropdownMenu(expanded = runMenu, onDismissRequest = { runMenu = false }) {
-                    live.forEach { s ->
-                        DropdownMenuItem(
-                            text = { Text("${s.host.label}${s.tmuxName?.let { " · $it" } ?: ""}") },
-                            onClick = {
-                                runMenu = false
-                                s.runCommand(sn.command, sn.autoRun, sn.useSudo)
-                            },
-                        )
-                    }
-                }
             }
             IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Hapus", tint = Palette.TextDim) }
         }

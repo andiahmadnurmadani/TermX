@@ -216,7 +216,7 @@ fun SettingsScreen(nav: Nav) {
 
             SectionHeader("Sesi & latar belakang")
             AppCard {
-                LabeledSwitch("Tmux default untuk host baru", "Sesi persisten aktif saat menambah host", s.defaultPersistent) { v ->
+                LabeledSwitch("Host baru selalu buka di tmux", "Mati: ketuk host = terminal biasa (tmux tetap bisa dipilih)", s.defaultPersistent) { v ->
                     vault.updateSettings { it.copy(defaultPersistent = v) }
                 }
                 LabeledSwitch(
@@ -439,7 +439,7 @@ private fun BatteryRow() {
         Column(Modifier.weight(1f)) {
             Text("Tanpa batasan baterai", style = MaterialTheme.typography.bodyLarge)
             Text(
-                if (ignoring) "Aktif — Android tidak membekukan koneksi TermX." else "Belum aktif — Android bisa memutus sesi saat layar mati lama.",
+                if (ignoring) "Aktif — Android tidak membekukan koneksi." else "Belum aktif — Android bisa memutus sesi saat layar mati lama.",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (ignoring) Palette.Accent else Palette.Warn,
             )

@@ -39,6 +39,12 @@ class MainActivity : ComponentActivity() {
         TermXApp.container.sessions.refreshService()
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Aplikasi ke latar belakang (atau akan ditutup): simpan riwayat layar semua tab sekarang.
+        TermXApp.container.sessions.saveAllHistory()
+    }
+
     fun setKeepScreenOn(on: Boolean) {
         if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

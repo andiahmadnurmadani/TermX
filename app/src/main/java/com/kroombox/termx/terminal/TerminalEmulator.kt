@@ -812,6 +812,87 @@ class TerminalEmulator(
         }
     }
 
+    // ---------------------------------------------------------------- Rekaman riwayat
+    /**
+     * Rekam isi terminal sebagai teks ANSI (warna & atribut ikut), untuk disimpan ke disk dan dimuat
+     * lagi dengan [append] saat sesi dibuka kembali — sehingga riwayat tidak hilang walau tab ditutup
+     * atau proses aplikasi dimatikan.
+     *
+     * Di layar utama: scrollback + layar. Di layar alternatif (tmux, vim, htop): hanya layar yang
+     * tampil, karena riwayat lengkapnya disimpan program itu sendiri (tmux: di server).
+     */
+    fun snapshot(maxLines: Int = 3000): String = synchronized(lock) {
+        val lines = ArrayList<TermLine>()
+        if (!isAltScreen) lines.addAll(scrollback)
+        lines.addAll(screen.asList())
+        var last = lines.size - 1
+        while (last >= 0 && lastContent(lines[last]) == 0 && !lines[last].wrapped) last--
+        if (last < 0) return@synchronized ""
+        val first = (last + 1 - maxLines).coerceAtLeast(0)
+        val sb = StringBuilder()
+        var cur = Style.DEFAULT
+        for (i in first..last) {
+            val line = lines[i]
+            val end = if (line.wrapped) line.size else lastContent(line)
+            for (x in 0 until end) {
+                val st = line.styles[x]
+                val a = Style.attrs(st)
+                if (a and Style.WIDE_CONT != 0) continue
+                val vis = Style.pack(Style.fg(st), Style.bg(st), a and (Style.WIDE or Style.WIDE_CONT).inv())
+                if (vis != cur) { sb.append(sgr(vis)); cur = vis }
+                sb.appendCodePoint(line.chars[x])
+            }
+            if (!line.wrapped || i == last) {
+                if (cur != Style.DEFAULT) { sb.append("\u001b[0m"); cur = Style.DEFAULT }
+                if (i < last) sb.append("\r\n")
+            }
+        }
+        sb.toString()
+    }
+
+    private fun lastContent(line: TermLine): Int {
+        for (x in line.size - 1 downTo 0) {
+            val st = line.styles[x]
+            if (line.chars[x] != ' '.code || Style.bg(st) != Style.COLOR_DEFAULT || Style.attrs(st) and Style.INVERSE != 0) return x + 1
+        }
+        return 0
+    }
+
+    private fun sgr(s: Long): String {
+        val p = ArrayList<String>(8)
+        p += "0"
+        val a = Style.attrs(s)
+        if (a and Style.BOLD != 0) p += "1"
+        if (a and Style.DIM != 0) p += "2"
+        if (a and Style.ITALIC != 0) p += "3"
+        if (a and Style.UNDERLINE != 0) p += "4"
+        if (a and Style.BLINK != 0) p += "5"
+        if (a and Style.INVERSE != 0) p += "7"
+        if (a and Style.INVISIBLE != 0) p += "8"
+        if (a and Style.STRIKE != 0) p += "9"
+        sgrColor(Style.fg(s), true, p)
+        sgrColor(Style.bg(s), false, p)
+        return "\u001b[" + p.joinToString(";") + "m"
+    }
+
+    private fun sgrColor(c: Int, fg: Boolean, p: MutableList<String>) {
+        if (c == Style.COLOR_DEFAULT) return
+        if (c and Style.TRUECOLOR_FLAG != 0) {
+            p += if (fg) "38" else "48"
+            p += "2"
+            p += "${(c shr 16) and 0xFF}"
+            p += "${(c shr 8) and 0xFF}"
+            p += "${c and 0xFF}"
+            return
+        }
+        val idx = c - 1
+        when {
+            idx < 8 -> p += "${(if (fg) 30 else 40) + idx}"
+            idx < 16 -> p += "${(if (fg) 90 else 100) + idx - 8}"
+            else -> { p += if (fg) "38" else "48"; p += "5"; p += "$idx" }
+        }
+    }
+
     // ---------------------------------------------------------------- Ukuran
     fun resize(newCols: Int, newRows: Int) {
         val nc = newCols.coerceAtLeast(2)

@@ -1,8 +1,5 @@
 package com.kroombox.termx.ui.screens
 
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
-import com.kroombox.termx.R
 import com.kroombox.termx.os.OsCatalog
 import com.kroombox.termx.ui.components.composeColor
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -26,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -107,14 +105,7 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
-                Row(Modifier.padding(top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Image(painterResource(R.drawable.ic_termx_logo), contentDescription = null, modifier = Modifier.size(40.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("TermX", style = MaterialTheme.typography.headlineMedium)
-                        Text("Host", style = MaterialTheme.typography.labelLarge, color = Palette.TextDim)
-                    }
-                }
+                Text("Host", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 12.dp, bottom = 12.dp))
                 TextField(
                     value = query,
                     onValueChange = { query = it },
@@ -266,7 +257,10 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
             title = "Hapus host?",
             message = "\"${host.label}\" beserta aturan port forward-nya akan dihapus.",
             confirmText = "Hapus", danger = true,
-            onConfirm = { TermXApp.container.vault.deleteHost(host.id) },
+            onConfirm = {
+                TermXApp.container.vault.deleteHost(host.id)
+                TermXApp.container.sessions.history.deleteForHost(host.id)
+            },
             onDismiss = { confirmDelete = false },
         )
     }
@@ -286,11 +280,12 @@ fun Tag(text: String, color: Color) {
 private fun HostMenu(host: Host, expanded: Boolean, onDismiss: () -> Unit, nav: Nav, onDelete: () -> Unit) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(text = { Text("Terminal") }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
-            onClick = { onDismiss(); nav.connect(host.id) })
-        if (host.persistentSession) {
-            DropdownMenuItem(text = { Text("Shell biasa (tanpa tmux)") }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
-                onClick = { onDismiss(); nav.connect(host.id, plain = true) })
-        }
+            onClick = { onDismiss(); nav.connect(host.id, plain = true) })
+        DropdownMenuItem(
+            text = { Text("Terminal tmux (${host.tmuxSessionName})") },
+            leadingIcon = { Icon(Icons.Rounded.Layers, null) },
+            onClick = { onDismiss(); nav.connect(host.id, tmux = host.tmuxSessionName) },
+        )
         DropdownMenuItem(text = { Text("SFTP") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) },
             onClick = { onDismiss(); nav.sftp(host.id) })
         DropdownMenuItem(text = { Text("Monitor server") }, leadingIcon = { Icon(Icons.Rounded.Speed, null) },

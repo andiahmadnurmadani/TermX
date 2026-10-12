@@ -40,6 +40,8 @@ class SessionManager(private val context: Context, val vault: Vault) {
 
     val forwards = PortForwardManager(this)
 
+    val history = SessionHistory(context)
+
     /** Naik setiap ada perubahan status sesi; UI meng-collect ini untuk menggambar ulang indikator. */
     private val _stateVersion = MutableStateFlow(0L)
     val stateVersion: StateFlow<Long> = _stateVersion.asStateFlow()
@@ -47,6 +49,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
 
     init {
         registerNetworkCallback()
+        startHistorySaver()
     }
 
     fun latestHost(id: String): Host? = vault.host(id)
@@ -69,7 +72,9 @@ class SessionManager(private val context: Context, val vault: Vault) {
             conn.connect()
             synchronized(connections) { connections[hostId] = conn }
             vault.touchHost(hostId)
-            detectOs(conn)
+            // OS dideteksi sekali saja (koneksi pertama) lalu disimpan sebagai penentu ikon; berikutnya
+            // tidak perlu dideteksi lagi kecuali diminta ulang dari editor host.
+            if (vault.host(hostId)?.osId == null) detectOs(conn)
             return conn
         }
     }
@@ -114,6 +119,14 @@ class SessionManager(private val context: Context, val vault: Vault) {
             else -> null
         }
         val s = TerminalSession(newId(), host, tmux, this, vault.current.settings.scrollbackLines, scope)
+        s.historyKey = history.key(host.id, tmux)
+        // Tampilkan riwayat sebelumnya (dari tab yang dulu ditutup / proses yang dimatikan Android).
+        history.load(s.historyKey)?.let { saved ->
+            s.emulator.resize(saved.cols, saved.rows)
+            s.emulator.append(saved.text)
+            s.emulator.append("\r\n\u001b[2m── riwayat sebelumnya ──\u001b[0m\r\n")
+        }
+        s.savedVersion = s.screenVersion.get()
         _sessions.update { it + s }
         s.start()
         persistOpenSessions()
@@ -131,7 +144,6 @@ class SessionManager(private val context: Context, val vault: Vault) {
         saved.forEach { ss ->
             if (vault.host(ss.hostId) == null) return@forEach
             openTerminal(ss.hostId, tmuxOverride = ss.tmuxName, forcePlain = ss.tmuxName == null)
-                ?.emulator?.append("\u001b[2m[TermX: sesi dipulihkan]\u001b[0m\r\n".toByteArray())
         }
     }
 
@@ -148,6 +160,9 @@ class SessionManager(private val context: Context, val vault: Vault) {
     /** Tutup tab. Sesi tmux di server tetap berjalan kecuali [killTmux] = true. */
     fun closeTerminal(id: String, killTmux: Boolean = false) {
         val s = session(id) ?: return
+        // Sesi tmux yang diakhiri dengan sengaja tidak perlu riwayat; selain itu simpan untuk dibuka lagi.
+        if (killTmux) history.delete(s.historyKey) else saveHistory(s, force = true)
+        rememberRecent(s, ended = killTmux)
         s.close()
         _sessions.update { list -> list.filterNot { it.id == id } }
         persistOpenSessions()
@@ -166,7 +181,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
     }
 
     fun closeAll() {
-        _sessions.value.forEach { it.close() }
+        _sessions.value.forEach { saveHistory(it, force = true); it.close() }
         _sessions.value = emptyList()
         vault.update { it.copy(openSessions = emptyList()) }
         scope.launch(Dispatchers.IO) { forwards.stopAll() }
@@ -200,17 +215,54 @@ class SessionManager(private val context: Context, val vault: Vault) {
         Unit
     }
 
+    // ------------------------------------------------------------------ Baru ditutup
+    private fun rememberRecent(s: TerminalSession, ended: Boolean) {
+        vault.update { d ->
+            val rest = d.recentSessions.filterNot { it.hostId == s.host.id && it.tmuxName == s.tmuxName }
+            val list = if (ended) rest else listOf(SavedSession(s.host.id, s.tmuxName, System.currentTimeMillis())) + rest
+            d.copy(recentSessions = list.filter { r -> d.hosts.any { it.id == r.hostId } }.take(8))
+        }
+    }
+
+    fun forgetRecent(r: SavedSession) {
+        vault.update { d -> d.copy(recentSessions = d.recentSessions.filterNot { it.hostId == r.hostId && it.tmuxName == r.tmuxName }) }
+    }
+
+    // ------------------------------------------------------------------ Riwayat layar
+    private fun saveHistory(s: TerminalSession, force: Boolean = false) {
+        val v = s.screenVersion.get()
+        if (!force && v == s.savedVersion) return
+        val text = s.emulator.snapshot()
+        val cols = s.emulator.cols
+        val rows = s.emulator.rows
+        s.savedVersion = v
+        scope.launch(Dispatchers.IO) { history.save(s.historyKey, cols, rows, text) }
+    }
+
+    /** Simpan riwayat semua tab sekarang (dipanggil saat aplikasi ke latar belakang). */
+    fun saveAllHistory() {
+        _sessions.value.forEach { saveHistory(it) }
+    }
+
+    private fun startHistorySaver() {
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(5_000)
+                try { saveAllHistory() } catch (_: Exception) {}
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ OS & sudo
     /** Deteksi OS server sekali per koneksi, lalu simpan ke host (untuk logo OS di daftar host). */
+    /** Dipanggil di thread IO saat koneksi dibuat; singkat (skrip read-only, batas 8 detik). */
     private fun detectOs(conn: SshConnection) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val r = conn.exec("sh -s", timeoutSec = 10, stdin = OsCatalog.DETECT_SCRIPT)
-                val d = OsCatalog.parse(r.stdout, r.stderr) ?: return@launch
-                val h = vault.host(conn.host.id) ?: return@launch
-                if (h.osId != d.id || h.osName != d.name) vault.saveHost(h.copy(osId = d.id, osName = d.name))
-            } catch (_: Exception) {
-            }
+        try {
+            val r = conn.exec("sh -s", timeoutSec = 8, stdin = OsCatalog.DETECT_SCRIPT)
+            val d = OsCatalog.parse(r.stdout, r.stderr) ?: return
+            val h = vault.host(conn.host.id) ?: return
+            if (h.osId != d.id || h.osName != d.name) vault.saveHost(h.copy(osId = d.id, osName = d.name))
+        } catch (_: Exception) {
         }
     }
 

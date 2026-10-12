@@ -5,6 +5,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Versi: dari environment CI (tag vX.Y.Z) atau gradle.properties.
+val termxVersionName: String = System.getenv("TERMX_VERSION_NAME")
+    ?: (project.findProperty("termx.versionName") as String? ?: "0.0.0")
+val termxVersionCode: Int = System.getenv("TERMX_VERSION_CODE")?.toIntOrNull()
+    ?: (project.findProperty("termx.versionCode") as String?)?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.kroombox.termx"
     compileSdk = 34
@@ -13,12 +19,23 @@ android {
         applicationId = "com.kroombox.termx"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = termxVersionCode
+        versionName = termxVersionName
         vectorDrawables { useSupportLibrary = true }
     }
 
     signingConfigs {
+        // Kunci rilis hanya ada di CI (secret GitHub), tidak pernah di repo.
+        val releaseStore = System.getenv("TERMX_KEYSTORE_FILE")
+        if (releaseStore != null && file(releaseStore).exists()) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("TERMX_KEYSTORE_PASSWORD")
+                keyAlias = "termx"
+                keyPassword = System.getenv("TERMX_KEYSTORE_PASSWORD")
+            }
+        }
         // Kunci debug tetap (bukan rahasia, hanya untuk build debug) supaya APK dari CI bisa dipasang
         // menimpa versi sebelumnya tanpa uninstall — data host dan sesi tidak hilang.
         getByName("debug") {
@@ -34,6 +51,7 @@ android {
         release {
             // Minify dimatikan: sshj + BouncyCastle memakai refleksi.
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {

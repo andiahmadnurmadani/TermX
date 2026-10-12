@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bolt
@@ -160,6 +161,9 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
             onSnippets = { showSnippets = true },
             menu = { dismiss ->
                 val view = viewHolder[0]
+                DropdownMenuItem(text = { Text("Snippet") }, leadingIcon = { Icon(Icons.Rounded.Bolt, null, tint = Palette.Warn) }, onClick = {
+                    dismiss(); showSnippets = true
+                })
                 DropdownMenuItem(text = { Text("Tempel") }, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) }, onClick = {
                     dismiss(); clipboardText(context)?.let { view?.paste(it) }
                 })
@@ -194,14 +198,20 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                 DropdownMenuItem(text = { Text("Monitor server") }, leadingIcon = { Icon(Icons.Rounded.Speed, null) }, onClick = {
                     dismiss(); nav.monitor(current.host.id)
                 })
-                DropdownMenuItem(text = { Text("Tab baru (sesi tmux baru)") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = {
+                DropdownMenuItem(text = { Text("Tab baru") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = {
+                    dismiss()
+                    mgr.openTerminal(current.host.id, forcePlain = true)?.let { selectedId = it.id }
+                })
+                DropdownMenuItem(text = { Text("Tab baru di tmux") }, leadingIcon = { Icon(Icons.Rounded.Layers, null) }, onClick = {
                     dismiss()
                     val base = current.tmuxName ?: current.host.tmuxSessionName
                     val existing = sessions.mapNotNull { it.tmuxName }.toSet()
-                    var i = 2
-                    while ("$base-$i" in existing) i++
-                    mgr.openTerminal(current.host.id, if (current.host.persistentSession || current.tmuxName != null) "$base-$i" else null)
-                        ?.let { selectedId = it.id }
+                    val name = if (base !in existing) base else {
+                        var i = 2
+                        while ("$base-$i" in existing) i++
+                        "$base-$i"
+                    }
+                    mgr.openTerminal(current.host.id, name)?.let { selectedId = it.id }
                 })
                 DropdownMenuItem(text = { Text("Ketik password sudo") }, leadingIcon = { Icon(Icons.Rounded.Key, null) }, onClick = {
                     dismiss()
@@ -293,6 +303,7 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                 if (v != null) v.showKeyboard()
             },
             onPaste = { clipboardText(context)?.let { viewHolder[0]?.paste(it) } },
+            onSnippets = { showSnippets = true },
         )
     }
 
@@ -483,6 +494,7 @@ private fun ExtraKeysBar(
     onText: (String) -> Unit,
     onKeyboard: () -> Unit,
     onPaste: () -> Unit,
+    onSnippets: () -> Unit,
 ) {
     val keys = remember(layout) { parseExtraKeys(layout) }
     Row(
@@ -490,6 +502,8 @@ private fun ExtraKeysBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         KeyButton(icon = true, label = "", active = false, onClick = onKeyboard)
+        Spacer(Modifier.width(4.dp))
+        KeyButton(label = "⚡", onClick = onSnippets)
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             keys.forEach { k ->
                 when (k) {
@@ -523,7 +537,7 @@ private fun SnippetPicker(snippets: List<Snippet>, onPick: (Snippet) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
         Text("Snippet", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         if (snippets.isEmpty()) {
-            Text("Belum ada snippet. Tambahkan di tab Snippet.", color = Palette.TextDim, modifier = Modifier.padding(20.dp))
+            Text("Belum ada snippet. Tambahkan di tab Snippet di layar utama.", color = Palette.TextDim, modifier = Modifier.padding(20.dp))
         }
         LazyColumn(Modifier.heightIn(max = 480.dp)) {
             items(snippets, key = { it.id }) { sn ->

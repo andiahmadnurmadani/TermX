@@ -171,8 +171,7 @@ class SessionService : Service() {
             .setSmallIcon(R.drawable.ic_stat_terminal)
             .setColor(0xFF3DDC97.toInt())
             .setContentTitle(title)
-            .setContentText(hosts.ifEmpty { "TermX" })
-            .setSubText("TermX")
+            .setContentText(hosts.ifEmpty { "Menjaga koneksi SSH" })
             .setStyle(style)
             .setWhen(startedAt)
             .setUsesChronometer(true)
@@ -224,7 +223,7 @@ class SessionService : Service() {
             val nm = ctx.getSystemService(NotificationManager::class.java)
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 nm.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "Sesi TermX aktif", NotificationManager.IMPORTANCE_LOW).apply {
+                    NotificationChannel(CHANNEL_ID, "Sesi SSH aktif", NotificationManager.IMPORTANCE_LOW).apply {
                         description = "Notifikasi tetap selama sesi SSH dan port forward berjalan, sampai Anda memutuskannya"
                         setShowBadge(false)
                     },
