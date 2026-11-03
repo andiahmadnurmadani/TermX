@@ -5,7 +5,6 @@ import com.kroombox.termx.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,8 +73,7 @@ fun HostAvatar(label: String, colorIndex: Int, size: Dp = 44.dp, icon: ImageVect
         modifier = Modifier
             .size(size)
             .clip(RoundedCornerShape(size * 0.3f))
-            .background(c.copy(alpha = 0.16f))
-            .border(1.dp, c.copy(alpha = 0.35f), RoundedCornerShape(size * 0.3f)),
+            .background(c.copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center,
     ) {
         if (icon != null) {

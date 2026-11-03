@@ -25,8 +25,11 @@ import net.schmizz.sshj.userauth.method.AuthKeyboardInteractive
 import net.schmizz.sshj.userauth.method.AuthPassword
 import net.schmizz.sshj.userauth.method.PasswordResponseProvider
 import java.io.ByteArrayOutputStream
+import java.net.InetAddress
+import java.net.Socket
 import java.security.PublicKey
 import java.util.concurrent.TimeUnit
+import javax.net.SocketFactory
 
 /**
  * Error koneksi yang ditampilkan ke pengguna. [fatal] = butuh tindakan pengguna (login/kunci/host key),
@@ -66,6 +69,7 @@ class SshConnection(
         }
         val c = SSHClient(config)
         c.connectTimeout = 15_000
+        c.socketFactory = InteractiveSocketFactory
         c.connection.keepAlive.keepAliveInterval = host.keepAliveSec.coerceIn(5, 300)
         // Tiga keep-alive tanpa balasan = koneksi mati, supaya sambung ulang dimulai lebih cepat.
         (c.connection.keepAlive as? KeepAliveRunner)?.maxAliveCount = 3
@@ -286,4 +290,26 @@ class SshConnection(
 
         override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
     }
+}
+
+/**
+ * Socket untuk sesi interaktif: Nagle dimatikan (TCP_NODELAY) seperti OpenSSH, supaya setiap ketikan
+ * langsung dikirim tanpa menunggu ACK paket sebelumnya. Tanpa ini, di jaringan seluler ketikan bisa
+ * tertahan dan muncul berkelompok.
+ */
+private object InteractiveSocketFactory : SocketFactory() {
+    private val base = SocketFactory.getDefault()
+
+    private fun Socket.tuned(): Socket = apply {
+        tcpNoDelay = true
+        keepAlive = true
+    }
+
+    override fun createSocket(): Socket = base.createSocket().tuned()
+    override fun createSocket(host: String?, port: Int): Socket = base.createSocket(host, port).tuned()
+    override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+        base.createSocket(host, port, localHost, localPort).tuned()
+    override fun createSocket(host: InetAddress?, port: Int): Socket = base.createSocket(host, port).tuned()
+    override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+        base.createSocket(address, port, localAddress, localPort).tuned()
 }

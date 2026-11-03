@@ -3,6 +3,7 @@ package com.kroombox.termx.ssh
 import android.content.Context
 import android.util.AtomicFile
 import java.io.File
+import java.util.concurrent.Executors
 
 /**
  * Riwayat perintah per host untuk autocomplete. Disimpan lokal (satu perintah per baris, terbaru di
@@ -12,6 +13,8 @@ import java.io.File
 class CommandHistory(context: Context) {
     private val dir = File(context.filesDir, "cmdhistory").apply { mkdirs() }
     private val cache = HashMap<String, MutableList<String>>()
+    /** Penulisan file (dengan fsync) berurutan di thread sendiri: [add] dipanggil dari thread UI saat Enter. */
+    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "cmd-history").apply { isDaemon = true } }
 
     private fun file(hostId: String) = AtomicFile(File(dir, hostId.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".txt"))
 
@@ -46,19 +49,24 @@ class CommandHistory(context: Context) {
     @Synchronized
     fun clearAll() {
         cache.clear()
-        dir.listFiles()?.forEach { it.delete() }
+        io.execute { dir.listFiles()?.forEach { it.delete() } }
     }
 
     fun deleteHost(hostId: String) {
         synchronized(this) { cache.remove(hostId) }
-        try { file(hostId).delete() } catch (_: Exception) {}
+        io.execute { try { file(hostId).delete() } catch (_: Exception) {} }
     }
 
     private fun write(hostId: String, l: List<String>) {
+        val text = l.joinToString("\n")
+        io.execute { writeNow(hostId, text) }
+    }
+
+    private fun writeNow(hostId: String, text: String) {
         val f = file(hostId)
         val out = try { f.startWrite() } catch (_: Exception) { return }
         try {
-            out.write(l.joinToString("\n").toByteArray(Charsets.UTF_8))
+            out.write(text.toByteArray(Charsets.UTF_8))
             f.finishWrite(out)
         } catch (_: Exception) {
             f.failWrite(out)

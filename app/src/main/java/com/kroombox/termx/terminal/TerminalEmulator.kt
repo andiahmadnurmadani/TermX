@@ -835,17 +835,24 @@ class TerminalEmulator(
      * Di layar utama: scrollback + layar. Di layar alternatif (tmux, vim, htop): hanya layar yang
      * tampil, karena riwayat lengkapnya disimpan program itu sendiri (tmux: di server).
      */
-    fun snapshot(maxLines: Int = 3000): String = synchronized(lock) {
-        val lines = ArrayList<TermLine>()
-        if (!isAltScreen) lines.addAll(scrollback)
-        lines.addAll(screen.asList())
-        var last = lines.size - 1
-        while (last >= 0 && lastContent(lines[last]) == 0 && !lines[last].wrapped) last--
-        if (last < 0) return@synchronized ""
-        val first = (last + 1 - maxLines).coerceAtLeast(0)
+    fun snapshot(maxLines: Int = 3000): String {
+        // Di dalam kunci hanya menyalin array baris (cepat). Penyusunan teks ANSI yang berat dilakukan
+        // di luar kunci, supaya output baru dan gambar layar tidak tertahan saat riwayat disimpan
+        // (dulu ini membuat ketikan sesekali muncul terlambat).
+        val lines: List<TermLine> = synchronized(lock) {
+            val all = ArrayList<TermLine>(scrollback.size + rows)
+            if (!isAltScreen) all.addAll(scrollback)
+            all.addAll(screen.asList())
+            var end = all.size - 1
+            while (end >= 0 && lastContent(all[end]) == 0 && !all[end].wrapped) end--
+            if (end < 0) return ""
+            val start = (end + 1 - maxLines).coerceAtLeast(0)
+            List(end - start + 1) { all[start + it].copy() }
+        }
+        val last = lines.size - 1
         val sb = StringBuilder()
         var cur = Style.DEFAULT
-        for (i in first..last) {
+        for (i in 0..last) {
             val line = lines[i]
             val end = if (line.wrapped) line.size else lastContent(line)
             for (x in 0 until end) {
@@ -861,7 +868,7 @@ class TerminalEmulator(
                 if (i < last) sb.append("\r\n")
             }
         }
-        sb.toString()
+        return sb.toString()
     }
 
     private fun lastContent(line: TermLine): Int {

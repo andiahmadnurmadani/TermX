@@ -81,6 +81,13 @@ class TermLine(cols: Int) {
         styles = ns
     }
 
+    /** Salinan lepas (untuk dibaca di luar kunci emulator). */
+    fun copy(): TermLine = TermLine(0).also {
+        it.chars = chars.copyOf()
+        it.styles = styles.copyOf()
+        it.wrapped = wrapped
+    }
+
     fun copyFrom(other: TermLine) {
         if (other.size != size) {
             chars = other.chars.copyOf()

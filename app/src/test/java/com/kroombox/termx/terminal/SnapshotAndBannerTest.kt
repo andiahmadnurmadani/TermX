@@ -33,6 +33,24 @@ class SnapshotAndBannerTest {
         assertTrue(!snap.contains("old 1"))
     }
 
+    @Test fun snapshotKeepsLastLinesAndEmptyScreenIsBlank() {
+        assertEquals("", TerminalEmulator(20, 3, 100).snapshot())
+        val e = TerminalEmulator(20, 3, 100)
+        repeat(10) { e.append("row $it\r\n") }
+        val snap = e.snapshot(maxLines = 4)
+        assertTrue(snap.contains("row 9"))
+        assertTrue(!snap.contains("row 5"))
+    }
+
+    @Test fun lineCopyIsIndependent() {
+        val line = TermLine(4)
+        line.chars[0] = 'a'.code
+        val copy = line.copy()
+        line.chars[0] = 'b'.code
+        assertEquals('a'.code, copy.chars[0])
+        assertEquals(4, copy.size)
+    }
+
     @Test fun bannerFitsNarrowAndWide() {
         val wide = Banner.render("root@srv", "Ubuntu 24.04 LTS", "terminal biasa", 80, Date(0))
         assertTrue(wide.contains("|_   _|"))

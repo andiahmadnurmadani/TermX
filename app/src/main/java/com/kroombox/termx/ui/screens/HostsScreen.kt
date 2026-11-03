@@ -4,7 +4,6 @@ import com.kroombox.termx.i18n.S
 import com.kroombox.termx.R
 import androidx.compose.ui.res.stringResource
 import com.kroombox.termx.os.OsCatalog
-import com.kroombox.termx.ui.components.composeColor
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -169,10 +168,7 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
                         }
                     }
                     items(list, key = { it.id }) { host ->
-                        HostCard(
-                            host, connected = host.id in connectedHosts, nav = nav,
-                            groupColor = data.groups.firstOrNull { it.id == host.groupId }?.let { accent(it.colorIndex) },
-                        )
+                        HostCard(host, connected = host.id in connectedHosts, nav = nav)
                     }
                 }
             }
@@ -273,13 +269,13 @@ private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (St
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HostCard(host: Host, connected: Boolean, nav: Nav, groupColor: Color? = null) {
+private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
-        border = androidx.compose.foundation.BorderStroke(1.dp, groupColor?.copy(alpha = 0.45f) ?: MaterialTheme.colorScheme.outlineVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
@@ -298,9 +294,9 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, groupColor: Color
                 Text(host.address, style = MonoSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OsCatalog.byId(host.osId)?.let { os -> Tag(os.title, os.composeColor()) }
-                    if (host.persistentSession) Tag("tmux · ${host.tmuxSessionName}", Palette.Accent)
-                    if (host.jumpHostId != null) Tag(stringResource(R.string.hosts_via_jump), Palette.Blue)
+                    OsCatalog.byId(host.osId)?.let { os -> Tag(os.title, Palette.TextDim) }
+                    if (host.persistentSession) Tag("tmux · ${host.tmuxSessionName}", Palette.TextDim)
+                    if (host.jumpHostId != null) Tag(stringResource(R.string.hosts_via_jump), Palette.TextDim)
                     host.tags.take(2).forEach { Tag(it, Palette.TextDim) }
                 }
             }

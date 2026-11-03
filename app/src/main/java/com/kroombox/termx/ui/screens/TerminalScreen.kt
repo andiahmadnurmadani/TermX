@@ -311,31 +311,9 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
         }
 
         // Isi password sudo (prompt yang tidak diisi otomatis) dan saran perintah (autocomplete).
-        val askPassword by current.passwordPrompt.collectAsState()
-        val inputLine by current.inputLine.collectAsState()
-        val suggestions = remember(inputLine, current.id, settings.autocomplete, data.snippets) {
-            val l = inputLine
-            if (settings.autocomplete && !l.isNullOrEmpty()) mgr.suggestions(current.host.id, l) else emptyList()
-        }
-        if (askPassword || suggestions.isNotEmpty()) {
-            Row(
-                Modifier.fillMaxWidth().background(Palette.Bg).horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (askPassword) {
-                    SuggestionPill(stringResource(R.string.term_fill_sudo), icon = Icons.Rounded.Key, color = Palette.Warn) {
-                        uiScope.launch { current.typeSudoPassword() }
-                    }
-                }
-                val l = inputLine ?: ""
-                suggestions.forEach { sug ->
-                    SuggestionPill(sug, highlight = l.length) {
-                        current.typed(sug.substring(l.length).toByteArray())
-                    }
-                }
-            }
+        // Composable terpisah: baris ketikan berubah tiap tombol, cukup bar ini yang digambar ulang.
+        SuggestionsBar(current, settings.autocomplete, data.snippets) {
+            uiScope.launch { current.typeSudoPassword() }
         }
 
         // Kontrol ala Termius di bawah: kembali, sesi aktif (✕ tutup), + sesi baru, keyboard.
@@ -723,4 +701,36 @@ fun clipboardText(context: Context): String? {
     val clip = cm.primaryClip ?: return null
     if (clip.itemCount == 0) return null
     return clip.getItemAt(0).coerceToText(context)?.toString()
+}
+
+/** Tombol isi password sudo dan saran perintah dari baris yang sedang diketik. */
+@Composable
+private fun SuggestionsBar(current: TerminalSession, autocomplete: Boolean, snippets: List<Snippet>, onFillSudo: () -> Unit) {
+    val mgr = TermXApp.container.sessions
+    val askPassword by current.passwordPrompt.collectAsState()
+    val inputLine by current.inputLine.collectAsState()
+    val suggestions = remember(inputLine, current.id, autocomplete, snippets) {
+        val l = inputLine
+        if (autocomplete && !l.isNullOrEmpty()) mgr.suggestions(current.host.id, l) else emptyList()
+    }
+    if (askPassword || suggestions.isNotEmpty()) {
+        Row(
+            Modifier.fillMaxWidth().background(Palette.Bg).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (askPassword) {
+                SuggestionPill(stringResource(R.string.term_fill_sudo), icon = Icons.Rounded.Key, color = Palette.Warn) {
+                    onFillSudo()
+                }
+            }
+            val l = inputLine ?: ""
+            suggestions.forEach { sug ->
+                SuggestionPill(sug, highlight = l.length) {
+                    current.typed(sug.substring(l.length).toByteArray())
+                }
+            }
+        }
+    }
 }

@@ -206,8 +206,7 @@ fun SpecAvatar(
         modifier = Modifier
             .size(size)
             .clip(shape)
-            .background(c.copy(alpha = 0.16f))
-            .border(1.dp, c.copy(alpha = 0.35f), shape),
+            .background(c.copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center,
     ) {
         when {

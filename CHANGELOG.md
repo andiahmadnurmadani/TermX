@@ -3,6 +3,21 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.8.4] - 2026-11-03
+
+### Fixed
+- Typing no longer lags for seconds now and then. Saving the terminal history (every 5 seconds) used to hold the
+  terminal lock while it built the whole scrollback as text, which froze drawing and new output. Lines are now copied
+  quickly and the text is built outside the lock.
+- Keystrokes are sent right away: the SSH socket now uses `TCP_NODELAY` (like OpenSSH), so small packets are not
+  held back waiting for the previous one to be acknowledged, which was noticeable on mobile networks.
+- Pressing Enter no longer writes the command history to disk on the UI thread.
+- The suggestion bar is its own composable, so a keystroke only redraws that bar instead of the whole terminal screen.
+
+### Changed
+- Host cards use a neutral border instead of the group color, and host avatars and tags no longer have colored
+  outlines or colored text. The group color stays on the group heading.
+
 ## [0.8.3] - 2026-10-12
 
 ### Fixed
