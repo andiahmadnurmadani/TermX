@@ -153,6 +153,8 @@ data class AppSettings(
     val keyboardMode: String = "standard",
     /** Layout bar tombol tambahan, dipisah spasi. */
     val extraKeys: String = DEFAULT_EXTRA_KEYS,
+    /** Cek pembaruan TermX di GitHub Releases secara otomatis (saat dibuka, lalu tiap 6 jam). */
+    val autoUpdateCheck: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_EXTRA_KEYS = "ESC TAB STAB CTRL ALT LEFT UP DOWN RIGHT / - | ~ HOME END PGUP PGDN"

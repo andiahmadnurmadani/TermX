@@ -60,8 +60,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: android.content.Intent?) {
-        if (intent?.action == ACTION_CONFIRM_DISCONNECT) {
-            TermXApp.container.sessions.disconnectRequested.value = true
+        when (intent?.action) {
+            ACTION_CONFIRM_DISCONNECT -> TermXApp.container.sessions.disconnectRequested.value = true
+            ACTION_SHOW_UPDATE -> TermXApp.container.updater.showPrompt()
         }
     }
 
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_CONFIRM_DISCONNECT = "com.kroombox.termx.CONFIRM_DISCONNECT"
+        const val ACTION_SHOW_UPDATE = "com.kroombox.termx.SHOW_UPDATE"
     }
 
     fun setKeepScreenOn(on: Boolean) {

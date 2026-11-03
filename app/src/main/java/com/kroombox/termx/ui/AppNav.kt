@@ -176,6 +176,7 @@ fun AppRoot() {
     PromptHost()
     BatteryPrompt()
     DisconnectAllPrompt()
+    com.kroombox.termx.ui.screens.UpdatePrompt()
 }
 
 @Composable

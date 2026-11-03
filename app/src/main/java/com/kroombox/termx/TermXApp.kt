@@ -5,6 +5,7 @@ import com.kroombox.termx.data.Vault
 import com.kroombox.termx.i18n.Lang
 import com.kroombox.termx.service.SessionService
 import com.kroombox.termx.ssh.SessionManager
+import com.kroombox.termx.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.schmizz.sshj.common.SecurityUtils
@@ -15,6 +16,7 @@ import java.security.Security
 class AppContainer(app: Application) {
     val vault = Vault(app)
     val sessions = SessionManager(app, vault)
+    val updater = Updater(app)
 
     /** Mulai port forward yang ditandai "mulai otomatis". */
     fun startAutoForwards() {
@@ -33,6 +35,8 @@ class TermXApp : Application() {
         container = AppContainer(this)
         Lang.apply(this, container.vault.current.settings.language)
         SessionService.ensureChannel(this)
+        container.updater.ensureChannel()
+        container.updater.startAutoCheck { container.vault.current.settings.autoUpdateCheck }
         // Tab yang masih aktif saat proses terakhir dimatikan Android dibuka lagi (attach ke tmux
         // yang sama). Sesi hanya berakhir bila pengguna sendiri menutupnya.
         container.sessions.restoreSessions()

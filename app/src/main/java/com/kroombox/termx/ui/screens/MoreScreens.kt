@@ -141,6 +141,7 @@ fun MoreScreen(nav: Nav, modifier: Modifier = Modifier) {
                     Text(stringResource(R.string.more_about_logos), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
                 }
             }
+            UpdateSection()
         }
     }
 }

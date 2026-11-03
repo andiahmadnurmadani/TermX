@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- APK pembaruan yang diunduh disimpan di cache/updates dan dibagikan ke installer Android. -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

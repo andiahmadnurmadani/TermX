@@ -3,7 +3,12 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
-## [0.8.4] - 2026-11-03
+## [0.9.0] - 2026-11-03
+
+### Added
+- In-app updates. TermX checks GitHub Releases every few hours and shows a notification when a new version is out.
+  The update dialog shows the release notes, downloads the APK, checks its SHA-256 checksum and signing key, and
+  opens the system installer. You can also check by hand under More > About, and turn off the automatic check there.
 
 ### Fixed
 - Typing no longer lags for seconds now and then. Saving the terminal history (every 5 seconds) used to hold the

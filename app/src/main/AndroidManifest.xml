@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Memulihkan sesi aktif setelah HP dinyalakan ulang. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Memasang pembaruan TermX yang diunduh dari GitHub Releases (selalu lewat konfirmasi installer). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".TermXApp"
@@ -44,6 +46,15 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Menjaga sesi SSH interaktif (terminal, tmux, port forward) tetap tersambung sampai pengguna memutuskannya" />
         </service>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
         <receiver
             android:name=".service.RestoreReceiver"
             android:exported="true">
