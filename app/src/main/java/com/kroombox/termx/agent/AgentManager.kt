@@ -128,6 +128,34 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     /** Diisi dari notifikasi; UI membuka chat ini lalu mengosongkannya. */
     val pendingOpen = MutableStateFlow<Pair<String, String>?>(null)
 
+    /** Sesi agent yang berjalan di server di luar TermX (tmux / herdr / terminal lain). */
+    suspend fun running(hostId: String): RunningInfo = withContext(Dispatchers.IO) {
+        val o = run(hostId, "running", timeoutSec = 20)
+        RunningInfo(
+            o.arr("running")?.mapNotNull { e ->
+                (e as? JsonObject)?.let {
+                    val t = it.obj("tmux")
+                    val h = it.obj("herdr")
+                    RunningAgent(
+                        it.str("agent"), it.long("pid"), it.str("cwd"), it.long("started"), it.str("where"), it.str("tty"),
+                        it.str("session"), it.str("title"),
+                        t?.str("session") ?: "", t?.str("window") ?: "", t?.str("pane") ?: "", t?.bool("attached") == true,
+                        h?.str("pane") ?: "", h?.str("status") ?: "",
+                    )
+                }
+            } ?: emptyList(),
+            o.str("herdr_bin"),
+        )
+    }
+
+    /** Pilih window & pane tmux tujuan sebelum attach (agar langsung tampil pane agent-nya). */
+    suspend fun selectTmuxPane(hostId: String, r: RunningAgent) = withContext(Dispatchers.IO) {
+        val target = shq("=${r.tmuxSession}:${r.tmuxWindow}.${r.tmuxPane}")
+        runCatching {
+            conn(hostId).exec("tmux select-window -t $target 2>/dev/null; tmux select-pane -t $target 2>/dev/null; true", timeoutSec = 10)
+        }
+    }
+
     suspend fun newChat(hostId: String, agent: String, cwd: String, model: String, mode: String): String =
         withContext(Dispatchers.IO) {
             rememberFolder(hostId, cwd)

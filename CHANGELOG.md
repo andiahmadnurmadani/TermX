@@ -3,6 +3,19 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.1] - 2026-11-04
+
+### Added
+- Agents now show their real logos (Claude Code, Codex, opencode, Hermes, Gemini CLI, Qwen Code, goose). Agents
+  without an official mark (pi, oh-my-pi, aider, crush) keep a monogram.
+- "Running on the server" lists coding agents that are already running on the host, also when they were started
+  outside TermX in tmux or herdr. Tap a tmux entry to attach to that exact pane, or a herdr entry to open it with
+  `herdr agent attach` (long-press to take it over from other screens). Agents in other terminals are shown for
+  information with their folder and start time.
+
+### Changed
+- The server helper (`~/.termx/agentd.py`) is updated to version 2 and reinstalled automatically.
+
 ## [0.10.0] - 2026-11-04
 
 ### Added

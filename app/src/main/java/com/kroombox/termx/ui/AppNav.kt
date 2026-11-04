@@ -120,6 +120,26 @@ class Nav(private val nav: NavHostController, private val context: android.conte
     fun agents(hostId: String) = guarded(hostId) { nav.navigate(Routes.agents(hostId)) }
     fun agentChat(hostId: String, chatId: String) = nav.navigate(Routes.agentChat(hostId, chatId)) { launchSingleTop = true }
 
+    /** Masuk ke sesi tmux yang sudah ada di server (mis. agent yang dijalankan di luar TermX). */
+    fun attachTmux(hostId: String, session: String) = guarded(hostId) {
+        val s = if (com.kroombox.termx.ssh.Tmux.sanitize(session) == session) {
+            TermXApp.container.sessions.openTerminal(hostId, tmuxOverride = session)
+        } else {
+            TermXApp.container.sessions.openTerminal(
+                hostId, forcePlain = true, startup = "exec tmux attach -t " + com.kroombox.termx.agent.shq("=$session"),
+            )
+        } ?: return@guarded
+        terminal(s.id)
+    }
+
+    /** Buka pane agent di herdr lewat `herdr agent attach`. */
+    fun attachHerdr(hostId: String, herdrBin: String, pane: String, takeover: Boolean) = guarded(hostId) {
+        val q = { s: String -> com.kroombox.termx.agent.shq(s) }
+        val cmd = q(herdrBin.ifBlank { "herdr" }) + " agent attach " + q(pane) + if (takeover) " --takeover" else ""
+        val s = TermXApp.container.sessions.openTerminal(hostId, forcePlain = true, startup = cmd) ?: return@guarded
+        terminal(s.id)
+    }
+
     /** Jalankan agent (atau login-nya) di tab terminal tmux tersendiri, di folder [cwd]. */
     fun agentTerminal(hostId: String, name: String, command: String, cwd: String) {
         val dir = if (cwd == "~" || cwd.isBlank()) "~" else com.kroombox.termx.agent.shq(cwd)

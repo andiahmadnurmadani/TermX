@@ -650,4 +650,8 @@
     <string name="ts_open">Buka Tailscale</string>
     <string name="ts_install">Pasang Tailscale</string>
     <string name="ts_connect_anyway">Sambung saja</string>
+    <string name="agent_running">Berjalan di server</string>
+    <string name="agent_running_other">terminal lain (%1$s)</string>
+    <string name="agent_running_open">Buka di terminal</string>
+    <string name="agent_running_takeover">Ambil alih dari layar lain</string>
 </resources>

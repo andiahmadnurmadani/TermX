@@ -9,3 +9,4 @@
 | JetBrains Mono, Fira Code, Cascadia Code | SIL Open Font License 1.1 (`app/src/main/assets/licenses/`) |
 | Hack | MIT + Bitstream Vera License (`app/src/main/assets/licenses/`) |
 | OS logos from [Simple Icons](https://simpleicons.org) | CC0 1.0 — trademarks belong to their respective owners |
+| AI agent logos from [Lobe Icons](https://github.com/lobehub/lobe-icons) (`@lobehub/icons-static-svg`) | MIT — trademarks belong to their respective owners |

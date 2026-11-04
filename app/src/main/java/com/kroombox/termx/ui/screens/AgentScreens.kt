@@ -129,6 +129,8 @@ import com.kroombox.termx.agent.LimitWindow
 import com.kroombox.termx.agent.Link
 import com.kroombox.termx.agent.NoteItem
 import com.kroombox.termx.agent.PermItem
+import com.kroombox.termx.agent.RunningAgent
+import com.kroombox.termx.agent.RunningInfo
 import com.kroombox.termx.agent.SlashCommand
 import com.kroombox.termx.agent.TextItem
 import com.kroombox.termx.agent.ToolItem
@@ -247,6 +249,7 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
     val host = remember(hostId) { TermXApp.container.vault.host(hostId) }
     var agents by remember { mutableStateOf(mgr.cachedAgents(hostId)) }
     var chats by remember { mutableStateOf<List<ChatMeta>?>(null) }
+    var running by remember { mutableStateOf<RunningInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var showNew by remember { mutableStateOf(false) }
@@ -269,8 +272,10 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
             coroutineScope {
                 val a = async { mgr.detect(hostId) }
                 val c = async { mgr.list(hostId) }
+                val r = async { runCatching { mgr.running(hostId) }.getOrNull() }
                 agents = a.await()
                 chats = c.await()
+                running = r.await()
             }
         } catch (e: CancellationException) {
             throw e
@@ -282,6 +287,7 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
         while (error == null) {
             delay(6000)
             runCatching { chats = mgr.list(hostId) }
+            runCatching { running = mgr.running(hostId) }
         }
     }
 
@@ -343,6 +349,21 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                     FlowAgents(chatAgents, termAgents) { a ->
                         if (a.isChat) showNew = true
                         else nav.agentTerminal(hostId, a.id, a.bin, mgr.recentFolders(hostId).firstOrNull() ?: "~")
+                    }
+                }
+
+                val run = running?.agents.orEmpty()
+                if (run.isNotEmpty()) {
+                    item("run-h") { SectionHeader(stringResource(R.string.agent_running)) }
+                    run.forEach { r ->
+                        item("run-${r.where}-${r.pid}-${r.herdrPane}") {
+                            RunningRow(r, agentName(r.agent, agents)) { takeover ->
+                                when (r.where) {
+                                    "tmux" -> scope.launch { mgr.selectTmuxPane(hostId, r); nav.attachTmux(hostId, r.tmuxSession) }
+                                    "herdr" -> nav.attachHerdr(hostId, running?.herdrBin ?: "", r.herdrPane, takeover)
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -482,27 +503,48 @@ internal fun FlowAgents(chat: List<AgentInfo>, term: List<AgentInfo>, onTap: (Ag
     }
 }
 
-/** Monogram agent: huruf pertama di kotak berwarna (warna tetap per agent). */
+/** Warna merek agent (dipakai untuk logo & monogram). */
+private fun agentColor(id: String): Color = when (id) {
+    "claude" -> Color(0xFFD97757)
+    "codex", "opencode", "goose" -> Color(0xFFE6EDF3)
+    "hermes" -> Color(0xFFF2C14E)
+    "gemini" -> Color(0xFF8AB4F8)
+    "qwen" -> Color(0xFF8B7BFF)
+    "pi" -> Color(0xFF7FD1B9)
+    "omp" -> Color(0xFFC79BF2)
+    else -> Palette.TextDim
+}
+
+/** Logo resmi agent (Lobe Icons) bila ada; selain itu monogram. */
+private fun agentLogo(id: String): Int? = when (id) {
+    "claude" -> R.drawable.ic_agent_claude
+    "codex" -> R.drawable.ic_agent_codex
+    "opencode" -> R.drawable.ic_agent_opencode
+    "hermes" -> R.drawable.ic_agent_hermes
+    "gemini" -> R.drawable.ic_agent_gemini
+    "qwen" -> R.drawable.ic_agent_qwen
+    "goose" -> R.drawable.ic_agent_goose
+    else -> null
+}
+
 @Composable
 internal fun AgentGlyph(id: String, size: androidx.compose.ui.unit.Dp = 32.dp) {
-    val color = when (id) {
-        "claude" -> Color(0xFFE8A87C)
-        "codex" -> Color(0xFF9FB4FF)
-        "opencode" -> Color(0xFFB8C0CC)
-        "hermes" -> Color(0xFFF2C14E)
-        "pi" -> Color(0xFF7FD1B9)
-        "omp" -> Color(0xFFC79BF2)
-        "gemini" -> Color(0xFF7AB8FF)
-        else -> Palette.TextDim
-    }
+    val color = agentColor(id)
+    val logo = agentLogo(id)
+    val neutral = color == Color(0xFFE6EDF3)
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(size * 0.32f)).background(color.copy(alpha = 0.16f)),
+        Modifier.size(size).clip(RoundedCornerShape(size * 0.32f))
+            .background(if (neutral) Palette.SurfaceHighest else color.copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            if (id == "omp") "π+" else if (id == "pi") "π" else id.take(1).uppercase(),
-            color = color, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.46f).sp,
-        )
+        if (logo != null) {
+            Icon(androidx.compose.ui.res.painterResource(logo), null, tint = color, modifier = Modifier.size(size * 0.58f))
+        } else {
+            Text(
+                if (id == "omp") "π+" else if (id == "pi") "π" else id.take(1).uppercase(),
+                color = color, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.46f).sp,
+            )
+        }
     }
 }
 
@@ -548,6 +590,59 @@ internal fun ChatRow(m: ChatMeta, agent: String, connected: Boolean, onOpen: () 
                 onClick = { menu = false; onRename() })
             DropdownMenuItem(text = { Text(stringResource(R.string.agent_delete), color = Palette.Danger) },
                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Palette.Danger) }, onClick = { menu = false; onDelete() })
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun RunningRow(r: RunningAgent, agent: String, onOpen: (takeover: Boolean) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val canOpen = r.where == "tmux" || (r.where == "herdr" && r.herdrPane.isNotBlank())
+    val place = when (r.where) {
+        "tmux" -> "tmux · ${r.tmuxSession}:${r.tmuxWindow}.${r.tmuxPane}"
+        "herdr" -> "herdr · ${r.herdrPane}"
+        else -> S.get(R.string.agent_running_other, r.tty.ifBlank { "?" })
+    }
+    Box {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .combinedClickable(enabled = canOpen, onClick = { onOpen(false) }, onLongClick = { if (r.where == "herdr") menu = true })
+                .padding(horizontal = 4.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AgentGlyph(r.agent, 38.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    r.title.ifBlank { agent }, style = MaterialTheme.typography.bodyLarge, color = Palette.Text,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "$place  ·  ${shortPath(r.cwd)}", style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                if (r.startedSec > 0) Text(timeAgo(r.startedSec * 1000), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+                Spacer(Modifier.height(4.dp))
+                when {
+                    r.herdrStatus == "working" -> PulseDot(Palette.Accent)
+                    r.herdrStatus == "blocked" || r.herdrStatus == "waiting" -> StatusDot(Palette.Warn, 7.dp)
+                    r.tmuxAttached -> StatusDot(Palette.Blue, 7.dp)
+                    else -> StatusDot(Palette.TextDim, 7.dp)
+                }
+            }
+            if (canOpen) {
+                Icon(Icons.Rounded.Terminal, null, tint = Palette.TextDim, modifier = Modifier.padding(start = 12.dp, end = 8.dp).size(20.dp))
+            }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text(stringResource(R.string.agent_running_open)) }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
+                onClick = { menu = false; onOpen(false) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.agent_running_takeover)) }, leadingIcon = { Icon(Icons.Rounded.Key, null) },
+                onClick = { menu = false; onOpen(true) })
         }
     }
 }

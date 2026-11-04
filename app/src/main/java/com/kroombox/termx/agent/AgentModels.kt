@@ -46,6 +46,27 @@ data class ChatMeta(
     val alive: Boolean,
 )
 
+/** Agent yang sedang berjalan di server di luar TermX (tmux, herdr, atau terminal lain). */
+data class RunningAgent(
+    val agent: String,
+    val pid: Long,
+    val cwd: String,
+    val startedSec: Long,
+    /** "tmux", "herdr", atau "other". */
+    val where: String,
+    val tty: String,
+    val session: String,
+    val title: String,
+    val tmuxSession: String = "",
+    val tmuxWindow: String = "",
+    val tmuxPane: String = "",
+    val tmuxAttached: Boolean = false,
+    val herdrPane: String = "",
+    val herdrStatus: String = "",
+)
+
+data class RunningInfo(val agents: List<RunningAgent>, val herdrBin: String)
+
 /** Jendela kuota resmi dari provider (mis. Claude: five_hour, seven_day). */
 data class LimitWindow(val key: String, val used: Double?, val resetEpochSec: Long?, val status: String?)
 

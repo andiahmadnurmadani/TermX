@@ -10,6 +10,7 @@ aplikasi menyambung lewat `agentd.py attach <id> <dari>` dan hanya menerima yang
 Login / API key tiap agent tidak pernah disentuh: agent memakai konfigurasi miliknya sendiri di server.
 """
 import json
+import re
 import os
 import shutil
 import signal
@@ -20,7 +21,7 @@ import threading
 import time
 import uuid
 
-VERSION = 1
+VERSION = 2
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -1267,9 +1268,180 @@ class PiAdapter(StreamAdapter):
 ADAPTERS = {"claude": ClaudeAdapter, "codex": CodexAdapter, "opencode": AcpAdapter, "hermes": AcpAdapter,
             "pi": PiAdapter, "omp": PiAdapter}
 
+
+# ------------------------------------------------------------------ sesi agent yang sedang berjalan
+# Deteksi agent yang dijalankan di luar TermX (di tmux, herdr, atau terminal lain) milik user ini.
+
+INTERPRETERS = ("node", "bun", "deno", "python", "python3")
+SKIP_ARGS = {"mcp", "--version", "-v", "--help", "acp", "app-server", "proto", "serve", "server", "completion"}
+
+
+def _read(path, binary=False):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        return data if binary else data.decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def _procs():
+    """pid -> {ppid, argv, start(epoch detik), tty}; hanya proses milik user ini."""
+    uid = os.getuid()
+    btime = 0
+    for line in (_read("/proc/stat") or "").splitlines():
+        if line.startswith("btime "):
+            btime = int(line.split()[1])
+    hz = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+    out = {}
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            if os.stat("/proc/" + d).st_uid != uid:
+                continue
+        except OSError:
+            continue
+        stat = _read("/proc/%s/stat" % d)
+        raw = _read("/proc/%s/cmdline" % d, binary=True)
+        if not stat or raw is None:
+            continue
+        rest = stat[stat.rfind(")") + 2:].split()
+        argv = [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
+        out[int(d)] = {"ppid": int(rest[1]), "argv": argv,
+                       "start": btime + int(rest[19]) // hz if btime else 0}
+    return out
+
+
+def _agent_of(argv):
+    if not argv:
+        return None
+    names = {b: a["id"] for a in CATALOG for b in a["bins"]}
+    b0 = os.path.basename(argv[0])
+    cand = None
+    if b0 in names:
+        cand, rest = names[b0], argv[1:]
+    elif b0 in INTERPRETERS or b0.startswith("python3."):
+        args = [a for a in argv[1:] if not a.startswith("-")]
+        if args:
+            b = re.sub(r"\.(c?js|mjs|py)$", "", os.path.basename(args[0]))
+            if b in names:
+                cand, rest = names[b], argv[argv.index(args[0]) + 1:]
+    if cand is None:
+        return None
+    if any(a in SKIP_ARGS for a in rest[:2]):
+        return None   # proses pembantu (server MCP/ACP, cek versi), bukan sesi interaktif
+    return cand
+
+
+def _tmux_panes():
+    if not shutil.which("tmux"):
+        return {}
+    try:
+        r = subprocess.run(["tmux", "list-panes", "-a", "-F",
+                            "#{pane_pid}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{session_attached}\t#{pane_title}\t#{window_name}"],
+                           capture_output=True, text=True, timeout=3)
+    except Exception:
+        return {}
+    panes = {}
+    host = socket.gethostname().split(".")[0]
+    for line in r.stdout.splitlines():
+        p = line.split("\t")
+        if len(p) >= 7 and p[0].isdigit():
+            panes[int(p[0])] = {"session": p[1], "window": p[2], "pane": p[3],
+                                "attached": p[4] not in ("", "0"),
+                                "title": "" if p[5].split(".")[0] == host else p[5], "window_name": p[6]}
+    return panes
+
+
+def _herdr_agents():
+    b = shutil.which("herdr")
+    if not b:
+        return None, []
+    try:
+        r = subprocess.run([b, "agent", "list"], capture_output=True, text=True, timeout=4)
+        data = json.loads(r.stdout or "{}")
+        return b, (data.get("result") or {}).get("agents") or []
+    except Exception:
+        return b, []
+
+
+def _session_arg(argv):
+    for i, a in enumerate(argv):
+        if a in ("--resume", "-r", "--session-id", "--session") and i + 1 < len(argv):
+            return re.sub(r"\.jsonl$", "", os.path.basename(argv[i + 1]))
+        if a.startswith("--resume=") or a.startswith("--session="):
+            return re.sub(r"\.jsonl$", "", os.path.basename(a.split("=", 1)[1]))
+    return ""
+
+
+def cmd_running(_args):
+    procs = _procs()
+    panes = _tmux_panes()
+    herdr_bin, herdr_list = _herdr_agents()
+    me = os.getpid()
+    found = []
+    for pid, p in procs.items():
+        agent = _agent_of(p["argv"])
+        if not agent:
+            continue
+        where, info, seen, cur, dup = "other", {}, set(), p["ppid"], False
+        while cur > 1 and cur not in seen:
+            seen.add(cur)
+            q = procs.get(cur)
+            if q is None:
+                break
+            if cur == me or any("agentd.py" in a for a in q["argv"][:3]):
+                where = "termx"   # chat milik TermX sendiri: sudah tampil di daftar percakapan
+                break
+            if _agent_of(q["argv"]) == agent:
+                dup = True        # proses anak dari agent yang sama (mis. pembungkus node)
+                break
+            if where == "other":
+                if cur in panes:
+                    where, info = "tmux", panes[cur]
+                elif q["argv"] and os.path.basename(q["argv"][0]) == "herdr":
+                    where = "herdr"
+            cur = q["ppid"]
+        if dup or where == "termx":
+            continue
+        if where == "other" and pid in panes:
+            where, info = "tmux", panes[pid]
+        try:
+            cwd = os.readlink("/proc/%d/cwd" % pid)
+        except OSError:
+            cwd = ""
+        try:
+            tty = os.readlink("/proc/%d/fd/0" % pid)
+            tty = tty if tty.startswith("/dev/pts") or tty.startswith("/dev/tty") else ""
+        except OSError:
+            tty = ""
+        found.append({"agent": agent, "pid": pid, "cwd": cwd, "started": p["start"], "where": where,
+                      "tty": tty.replace("/dev/", ""), "session": _session_arg(p["argv"]), **(
+                          {"tmux": info, "title": info.get("title", "")} if where == "tmux" else {})})
+
+    # herdr melaporkan agent-nya sendiri (status, judul, id pane) — lebih akurat dari pindaian proses.
+    out = [f for f in found if f["where"] != "herdr"]
+    hproc = [f for f in found if f["where"] == "herdr"]
+    for h in herdr_list:
+        aid = h.get("agent") or ""
+        match = next((f for f in hproc if f["agent"] == aid and f["cwd"] == (h.get("foreground_cwd") or h.get("cwd"))), None)
+        if match:
+            hproc.remove(match)
+        sess = h.get("agent_session") or {}
+        out.append({"agent": aid, "pid": match["pid"] if match else 0, "cwd": h.get("foreground_cwd") or h.get("cwd") or "",
+                    "started": match["started"] if match else 0, "where": "herdr", "tty": match["tty"] if match else "",
+                    "session": sess.get("value") or "", "title": h.get("terminal_title_stripped") or "",
+                    "herdr": {"pane": h.get("pane_id") or "", "workspace": h.get("workspace_id") or "",
+                              "status": h.get("agent_status") or "", "focused": bool(h.get("focused"))}})
+    out.extend(hproc)
+    out.sort(key=lambda f: f.get("started") or 0, reverse=True)
+    print(jdump({"running": out, "herdr_bin": herdr_bin or "", "tmux": bool(shutil.which("tmux"))}))
+
+
 COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
-    "stop": cmd_stop, "rename": cmd_rename, "_worker": cmd_worker,
+    "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "_worker": cmd_worker,
 }
 
 
@@ -1279,7 +1451,7 @@ def main():
         if len(sys.argv) > 1 and sys.argv[1] == "version":
             print(VERSION)
             return
-        raise SystemExit("usage: agentd.py detect|list|new|attach|rm|stop|rename|version")
+        raise SystemExit("usage: agentd.py detect|list|new|attach|rm|stop|rename|running|version")
     COMMANDS[sys.argv[1]](sys.argv[2:])
 
 

@@ -651,4 +651,8 @@
     <string name="ts_open">Open Tailscale</string>
     <string name="ts_install">Get Tailscale</string>
     <string name="ts_connect_anyway">Connect anyway</string>
+    <string name="agent_running">Running on the server</string>
+    <string name="agent_running_other">another terminal (%1$s)</string>
+    <string name="agent_running_open">Open in terminal</string>
+    <string name="agent_running_takeover">Take over from other screens</string>
 </resources>
