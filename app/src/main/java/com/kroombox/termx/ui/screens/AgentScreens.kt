@@ -4,6 +4,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.KeyboardDoubleArrowDown
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.derivedStateOf
@@ -169,6 +176,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Locale
@@ -848,9 +856,9 @@ internal fun RunningRow(
     var menu by remember { mutableStateOf(false) }
     val canTerminal = r.where == "tmux" || (r.where == "herdr" && r.herdrPane.isNotBlank())
     val place = when (r.where) {
-        "tmux" -> "tmux · ${r.tmuxSession}:${r.tmuxWindow}.${r.tmuxPane}"
-        "herdr" -> "herdr · ${r.herdrPane}"
-        else -> S.get(R.string.agent_running_other, r.tty.ifBlank { "?" })
+        "tmux" -> "tmux"
+        "herdr" -> "herdr"
+        else -> null   // terminal lain (pts/…): tidak ditampilkan
     }
     val status = r.herdrStatus.ifBlank { r.status }
     val (statusText, statusColor) = when (status) {
@@ -877,7 +885,7 @@ internal fun RunningRow(
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "$place  ·  ${shortPath(r.cwd)}", style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+                    listOfNotNull(place, shortPath(r.cwd)).joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -1135,14 +1143,24 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
 
     // Buka di pesan terbaru, dan ikuti pesan baru selama pengguna sedang di bagian bawah.
     var landed by remember(chatId) { mutableStateOf(false) }
+    var lastCount by remember(chatId) { mutableStateOf(0) }
     LaunchedEffect(state.items.size, state.items.lastOrNull()?.key, state.working) {
-        if (state.items.isEmpty()) return@LaunchedEffect
+        if (state.items.isEmpty()) { lastCount = 0; return@LaunchedEffect }
+        val jump = state.items.size - lastCount > 3   // riwayat yang baru dimuat: langsung, tanpa animasi
+        lastCount = state.items.size
         if (!landed) {
             listState.scrollToItem(0)
             landed = true
         } else if (listState.firstVisibleItemIndex <= 2) {
-            listState.animateScrollToItem(0)
+            if (jump) listState.scrollToItem(0) else listState.animateScrollToItem(0)
         }
+    }
+    val loadingOlder by chat.loadingOlder.collectAsState()
+    // Animasi muat tampil sampai riwayat awal diterima; batas waktu agar tidak pernah tertahan.
+    var loadTimedOut by remember(chatId) { mutableStateOf(false) }
+    LaunchedEffect(chatId, state.synced) {
+        loadTimedOut = false
+        if (!state.synced) { delay(10_000); loadTimedOut = true }
     }
 
     val modelChoices = state.models.ifEmpty { agent?.models?.map { Choice(it, it) } ?: emptyList() }
@@ -1208,6 +1226,9 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                 },
                 navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.mon_back)) } },
                 actions = {
+                    if (mirror != null && (mirror.where == "tmux" || mirror.where == "herdr")) {
+                        IconButton(onClick = { openTerminal(false) }) { Icon(Icons.Rounded.Terminal, stringResource(R.string.agent_open_terminal), tint = Palette.TextDim) }
+                    }
                     val five = state.limits.firstOrNull { it.key == "five_hour" }?.let(::limitPercent)
                     if (five != null || state.cost > 0 || state.tokensOut > 0) {
                         Surface(onClick = { showUsage = true }, shape = RoundedCornerShape(10.dp), color = Palette.SurfaceHigh) {
@@ -1259,7 +1280,9 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                 LinkBanner(state.linkError ?: stringResource(R.string.agent_link_failed)) { chat.retry() }
             }
             if (mirror != null) MirrorBanner(mirror)
-            if (state.items.isEmpty() && !state.working) {
+            if (!state.synced && !loadTimedOut && state.link != Link.FAILED) {
+                ChatLoading(meta?.agent, agent?.name ?: meta?.agent ?: "", state.items.count { it is UserItem }, Modifier.weight(1f))
+            } else if (state.items.isEmpty() && !state.working) {
                 ChatEmpty(agent?.name ?: meta?.agent ?: "", cwd, meta?.agent, Modifier.weight(1f)) { send(it) }
             } else {
                 val reversed = remember(state.items) { state.items.asReversed() }
@@ -1273,13 +1296,20 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                     verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
                 ) {
                     if (state.working || state.retry != null) item("~working") { WorkingRow(state, meta?.agent) }
-                    items(reversed, key = { it.key }, contentType = { it::class }) { item ->
-                        ChatItemView(
-                            item,
-                            onAnswer = { p, allow, always -> chat.answer(p.key.removePrefix("p"), allow, always) },
-                            onLogin = if (agent != null) ({ openTerminal(true) }) else null,
-                        )
+                    items(reversed.size, key = { reversed[it].key }, contentType = { reversed[it]::class }) { i ->
+                        val item = reversed[i]
+                        // Nama agent di awal tiap jawaban (setelah prompt pengguna).
+                        val head = item !is UserItem && item !is TurnItem && (i + 1 >= reversed.size || reversed[i + 1] is UserItem)
+                        Column {
+                            if (head) AssistantHeader(meta?.agent, agent?.name ?: meta?.agent ?: "")
+                            ChatItemView(
+                                item,
+                                onAnswer = { p, allow, always -> chat.answer(p.key.removePrefix("p"), allow, always) },
+                                onLogin = if (agent != null) ({ openTerminal(true) }) else null,
+                            )
+                        }
                     }
+                    if (state.olderTurns > 0) item("~older") { OlderButton(state.olderTurns, loadingOlder) { chat.loadOlder() } }
                 }
                 // Langsung ke pesan terbaru tanpa menggulir manual.
                 androidx.compose.animation.AnimatedVisibility(
@@ -1324,16 +1354,104 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
 
 @Composable
 private fun MirrorBanner(m: com.kroombox.termx.agent.MirrorInfo) {
+    if (m.where != "tmux" && m.where != "herdr") return   // terminal lain: tidak perlu penanda
     Row(
-        Modifier.fillMaxWidth().background(Palette.Accent.copy(alpha = 0.10f)).padding(horizontal = 16.dp, vertical = 7.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PulseDot(Palette.Accent)
-        Spacer(Modifier.width(8.dp))
+        Row(
+            Modifier.clip(RoundedCornerShape(50)).background(Palette.Accent.copy(alpha = 0.10f)).padding(horizontal = 12.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.Sensors, null, tint = Palette.Accent, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.agent_mirror_live_short), color = Palette.Accent, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * Animasi muat chat: logo agent di tengah cincin berputar berwarna merek agent, lalu kerangka percakapan
+ * yang berkilau seperti pesan yang sedang tersusun.
+ */
+@Composable
+internal fun ChatLoading(agentId: String?, name: String, prompts: Int, modifier: Modifier) {
+    val tint = agentId?.let { agentColor(it) }?.takeIf { it != Color(0xFFE6EDF3) && it != Palette.TextDim } ?: Palette.Accent
+    val t = rememberInfiniteTransition(label = "load")
+    val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(1400, easing = androidx.compose.animation.core.LinearEasing)), label = "spin")
+    val breathe by t.animateFloat(0.92f, 1.04f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "breathe")
+    val shimmer by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1300, easing = androidx.compose.animation.core.LinearEasing)), label = "shimmer")
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                val stroke = 3.dp.toPx()
+                val inset = stroke / 2 + 2.dp.toPx()
+                val arcSize = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2)
+                val tl = androidx.compose.ui.geometry.Offset(inset, inset)
+                drawArc(tint.copy(alpha = 0.12f), 0f, 360f, false, tl, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                drawArc(
+                    androidx.compose.ui.graphics.Brush.sweepGradient(listOf(Color.Transparent, tint.copy(alpha = 0.35f), tint), center),
+                    spin, 270f, false, tl, arcSize,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                )
+            }
+            Box(Modifier.size(60.dp).graphicsLayer { scaleX = breathe; scaleY = breathe }, contentAlignment = Alignment.Center) {
+                if (agentId != null) AgentGlyph(agentId, 44.dp)
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(stringResource(R.string.agent_loading_title), style = MaterialTheme.typography.titleMedium, color = Palette.Text, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
         Text(
-            stringResource(if (m.where == "tmux" || m.where == "herdr") R.string.agent_mirror_live else R.string.agent_mirror_other, m.place),
-            color = Palette.Text, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            if (prompts > 0) androidx.compose.ui.res.pluralStringResource(R.plurals.agent_loading_count, prompts, prompts)
+            else stringResource(R.string.agent_loading_sub, name),
+            style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
         )
+        Spacer(Modifier.height(28.dp))
+        // Kerangka percakapan dengan kilau berjalan.
+        val brush = androidx.compose.ui.graphics.Brush.linearGradient(
+            listOf(Palette.Surface, Palette.SurfaceHighest, Palette.Surface),
+            start = androidx.compose.ui.geometry.Offset(shimmer * 600f, 0f),
+            end = androidx.compose.ui.geometry.Offset(shimmer * 600f + 400f, 120f),
+        )
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.align(Alignment.End).fillMaxWidth(0.55f).height(34.dp).clip(RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp)).background(brush))
+            Box(Modifier.fillMaxWidth(0.85f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(brush))
+            Box(Modifier.fillMaxWidth(0.7f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(brush))
+            Box(Modifier.fillMaxWidth(0.9f).height(36.dp).clip(RoundedCornerShape(12.dp)).background(brush))
+            Box(Modifier.fillMaxWidth(0.45f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(brush))
+        }
+    }
+}
+
+@Composable
+internal fun AssistantHeader(agentId: String?, name: String) {
+    Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (agentId != null) AgentGlyph(agentId, 22.dp)
+        Spacer(Modifier.width(8.dp))
+        Text(name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.TextDim, maxLines = 1)
+    }
+}
+
+@Composable
+internal fun OlderButton(turns: Int, loading: Boolean, onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Surface(onClick = onClick, enabled = !loading, shape = RoundedCornerShape(50), color = Palette.SurfaceHigh) {
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (loading) CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp, color = Palette.Accent)
+                else Icon(Icons.Rounded.History, null, tint = Palette.Accent, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    androidx.compose.ui.res.pluralStringResource(R.plurals.agent_load_older, turns, turns),
+                    style = MaterialTheme.typography.labelLarge, color = Palette.Text,
+                )
+            }
+        }
     }
 }
 
@@ -1632,12 +1750,18 @@ private fun NoteRow(item: NoteItem, onLogin: (() -> Unit)?) {
         return
     }
     if (item.error) {
-        Text(
-            item.text, style = MaterialTheme.typography.bodySmall, color = Palette.Danger,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Palette.Danger.copy(alpha = 0.10f)).padding(10.dp),
-        )
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.Danger.copy(alpha = 0.10f)).padding(10.dp),
+        ) {
+            Icon(Icons.Rounded.ErrorOutline, null, tint = Palette.Danger, modifier = Modifier.padding(end = 8.dp).size(17.dp))
+            Text(item.text, style = MaterialTheme.typography.bodySmall, color = Palette.Danger)
+        }
     } else {
-        Text(item.text, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, modifier = Modifier.padding(horizontal = 4.dp))
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Info, null, tint = Palette.TextDim, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(item.text, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
     }
 }
 
@@ -1667,6 +1791,7 @@ private fun LoginHint(detail: String, onLogin: (() -> Unit)?) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TurnFooter(item: TurnItem, onLogin: (() -> Unit)?) {
     Column(Modifier.fillMaxWidth()) {
@@ -1676,16 +1801,21 @@ private fun TurnFooter(item: TurnItem, onLogin: (() -> Unit)?) {
             Spacer(Modifier.height(6.dp))
         }
         val parts = buildList {
-            item.model?.let { add(it) }
-            if (item.tokensIn > 0 || item.tokensOut > 0) add("↑${formatTokens(item.tokensIn)} ↓${formatTokens(item.tokensOut)}")
-            if (item.cost > 0) add(formatCost(item.cost))
-            if (item.ms > 0) add(String.format(Locale.US, "%.1fs", item.ms / 1000.0))
+            item.model?.let { add(Icons.Rounded.Memory to it) }
+            if (item.tokensIn > 0 || item.tokensOut > 0) add(Icons.Rounded.SwapVert to "${formatTokens(item.tokensIn)} / ${formatTokens(item.tokensOut)}")
+            if (item.cost > 0) add(Icons.Rounded.Payments to formatCost(item.cost))
+            if (item.ms > 0) add(Icons.Rounded.Schedule to String.format(Locale.US, "%.1fs", item.ms / 1000.0))
         }
         if (parts.isNotEmpty()) {
-            Text(
-                parts.joinToString("   "), fontFamily = Mono, fontSize = 11.sp, color = Palette.TextDim.copy(alpha = 0.8f),
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
+            FlowRow(Modifier.padding(horizontal = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for ((icon, label) in parts) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(icon, null, tint = Palette.TextDim.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text(label, fontFamily = Mono, fontSize = 11.sp, color = Palette.TextDim.copy(alpha = 0.85f), maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }

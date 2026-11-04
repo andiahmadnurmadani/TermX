@@ -663,6 +663,17 @@
     <string name="agent_mirror_other">Running in %1$s · sending a message continues it here in TermX</string>
     <string name="agent_screen_title">Agent screen</string>
     <string name="agent_jump_latest">Jump to latest message</string>
+    <string name="agent_loading_title">Loading conversation</string>
+    <string name="agent_loading_sub">Connecting to %1$s…</string>
+    <plurals name="agent_loading_count">
+        <item quantity="one">%d prompt loaded</item>
+        <item quantity="other">%d prompts loaded</item>
+    </plurals>
+    <string name="agent_mirror_live_short">Live · synced with the terminal</string>
+    <plurals name="agent_load_older">
+        <item quantity="one">Load %d earlier prompt</item>
+        <item quantity="other">Load %d earlier prompts</item>
+    </plurals>
     <string name="agent_usage_section">Usage and accounts</string>
     <string name="agent_usage_loading">Checking accounts on the server…</string>
     <string name="agent_usage_unreported">%1$s don\'t report usage to TermX.</string>

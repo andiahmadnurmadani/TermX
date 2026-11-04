@@ -185,6 +185,10 @@ data class ChatState(
     val retry: String? = null,
     /** Sesi luar sudah dilanjutkan di TermX (chat tidak lagi mengikuti tmux/herdr). */
     val mirrorEnded: Boolean = false,
+    /** Jumlah prompt lama yang belum dimuat (riwayat dibatasi agar chat langsung terbuka di pesan terbaru). */
+    val olderTurns: Int = 0,
+    /** Riwayat awal sudah diterima seluruhnya (layar chat menampilkan animasi muat sampai ini true). */
+    val synced: Boolean = false,
 )
 
 // ------------------------------------------------------------------ JSON kecil
@@ -248,6 +252,8 @@ class ChatReducer {
             )
             "context" -> state = state.copy(contextUsed = o.long("used"), contextSize = o.long("size"))
             "gone" -> state = state.copy(gone = true)
+            "older" -> state = state.copy(olderTurns = o.long("turns").toInt())
+            "synced" -> state = state.copy(synced = true)
             "user" -> {
                 order.firstOrNull { it.startsWith("local") && (items[it] as? UserItem)?.text == o.str("text") }?.let {
                     order.remove(it); items.remove(it)

@@ -75,6 +75,7 @@ class TerminalSession(
      * lalu dikirim ke server. Balasan otomatis terminal tetap lewat [write] langsung.
      */
     fun typed(bytes: ByteArray) {
+        write(bytes) // kirim dulu; pelacakan baris & riwayat menyusul agar ketikan tidak tertunda
         val done = synchronized(tracker) {
             val d = tracker.feed(String(bytes, Charsets.UTF_8))
             _inputLine.value = tracker.line
@@ -102,7 +103,6 @@ class TerminalSession(
                 if (!prompt && probe.isNotEmpty() && echoed) manager.commandHistory.add(host.id, cmd)
             }
         }
-        write(bytes)
     }
 
     /** Kunci file riwayat (lihat [SessionHistory]). */

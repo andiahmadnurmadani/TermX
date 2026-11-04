@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 5
+VERSION = 6
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -282,12 +282,18 @@ def spawn_worker(cid):
 
 def cmd_attach(args):
     """Kirim event mulai nomor <dari>, lalu ikuti terus. Baris JSON di stdin diteruskan ke worker."""
+    # attach <id> <dari> [giliran]: bila <dari> 0 dan [giliran] > 0, hanya N prompt terakhir yang dikirim
+    # (plus event status terakhir sebelumnya), didahului {"t":"older","turns":k} bila ada riwayat yang dilewati.
     cid, start = args[0], int(args[1]) if len(args) > 1 else 0
+    tail = int(args[2]) if len(args) > 2 and args[2].isdigit() else 0
     d = chat_dir(cid)
     if not os.path.isdir(d):
         print(jdump({"t": "gone"}), flush=True)
         return
     spawn_worker(cid)
+    prelude = []
+    if start == 0 and tail > 0:
+        start, prelude = _tail_start(os.path.join(d, "events.jsonl"), tail)
     stop = threading.Event()
 
     def pump_stdin():
@@ -315,9 +321,12 @@ def cmd_attach(args):
         time.sleep(0.05)
     with open(path, encoding="utf-8") as f:
         out = sys.stdout
+        for line in prelude:
+            out.write(line)
         skipped = 0
         buf = ""
         last_data = time.time()
+        synced = False
         while not stop.is_set():
             chunk = f.readline()
             if chunk:
@@ -332,6 +341,9 @@ def cmd_attach(args):
                 last_data = time.time()
                 continue  # kumpulkan yang tersedia, flush sekali
             try:
+                if not synced and not buf:  # riwayat awal sudah terkirim semua
+                    out.write('{"t":"synced"}\n')
+                    synced = True
                 out.flush()
             except BrokenPipeError:
                 return
@@ -344,6 +356,33 @@ def cmd_attach(args):
                 except BrokenPipeError:
                     return
                 last_data = time.time()
+
+
+STATE_EVENTS = ("init", "model", "mode", "models", "modes", "commands", "limits", "context", "mirror_end")
+
+
+def _tail_start(path, turns):
+    """Nomor baris awal untuk N prompt terakhir + baris status terakhir sebelum itu + penanda riwayat lama."""
+    try:
+        with open(path, "rb") as f:
+            lines = f.readlines()
+    except OSError:
+        return 0, []
+    users = [i for i, l in enumerate(lines) if b'"t":"user"' in l or b'"t": "user"' in l]
+    if len(users) <= turns:
+        return 0, []
+    cut = users[-turns]
+    last = {}
+    for i in range(cut):
+        l = lines[i]
+        if len(l) > 20000:
+            continue
+        m = re.search(rb'"t":\s*"([a-z_]+)"', l)
+        if m and m.group(1).decode() in STATE_EVENTS:
+            last[m.group(1)] = i
+    prelude = [lines[i].decode("utf-8", "replace") for i in sorted(last.values())]
+    prelude.append(jdump({"t": "older", "turns": len(users) - turns}) + "\n")
+    return cut, prelude
 
 
 # ---------------------------------------------------------------- worker
@@ -2111,7 +2150,7 @@ class MirrorAdapter:
                     if not self.gone:
                         self.gone = True
                         self._close_perm(False)
-                        self.w.emit({"t": "note", "msg": "The agent in %s has exited. Send a message to continue here." % self.mi.get("place")})
+                        self.w.emit({"t": "note", "msg": "The agent in the terminal has exited. Send a message to continue here."})
                         if self.w.busy:
                             self.w.set_busy(False)
                     continue

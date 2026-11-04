@@ -662,6 +662,17 @@
     <string name="agent_mirror_other">Berjalan di %1$s · mengirim pesan akan melanjutkannya di TermX</string>
     <string name="agent_screen_title">Layar agent</string>
     <string name="agent_jump_latest">Ke pesan terbaru</string>
+    <string name="agent_loading_title">Memuat percakapan</string>
+    <string name="agent_loading_sub">Menyambung ke %1$s…</string>
+    <plurals name="agent_loading_count">
+        <item quantity="one">%d prompt dimuat</item>
+        <item quantity="other">%d prompt dimuat</item>
+    </plurals>
+    <string name="agent_mirror_live_short">Live · tersinkron dengan terminal</string>
+    <plurals name="agent_load_older">
+        <item quantity="one">Muat %d prompt sebelumnya</item>
+        <item quantity="other">Muat %d prompt sebelumnya</item>
+    </plurals>
     <string name="agent_usage_section">Pemakaian dan akun</string>
     <string name="agent_usage_loading">Memeriksa akun di server…</string>
     <string name="agent_usage_unreported">%1$s tidak melaporkan pemakaian ke TermX.</string>

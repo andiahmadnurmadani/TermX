@@ -107,4 +107,18 @@ class ChatReducerTest {
         r.apply(ev("""{"t":"mirror_end","n":3}"""))
         assertTrue(r.snapshot().mirrorEnded)
     }
+
+    @Test fun olderAndSyncedMarkers() {
+        val r = ChatReducer()
+        r.apply(kotlinx.serialization.json.Json.parseToJsonElement("""{"t":"older","turns":12}""").jsonObject)
+        r.apply(kotlinx.serialization.json.Json.parseToJsonElement("""{"t":"user","text":"hi","n":40,"at":1}""").jsonObject)
+        assertEquals(false, r.snapshot().synced)
+        r.apply(kotlinx.serialization.json.Json.parseToJsonElement("""{"t":"synced"}""").jsonObject)
+        val s = r.snapshot()
+        assertEquals(12, s.olderTurns)
+        assertEquals(true, s.synced)
+        assertEquals(40, r.lastSeq)
+        r.reset()
+        assertEquals(false, r.snapshot().synced)
+    }
 }

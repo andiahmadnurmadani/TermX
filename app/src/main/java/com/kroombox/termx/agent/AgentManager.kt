@@ -65,14 +65,25 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
     private fun conn(hostId: String): SshConnection = sessions.connectionFor(hostId)
 
+    private val installLocks = ConcurrentHashMap<String, Any>()
+
+    // detect/list/running dipanggil bersamaan: hanya satu yang memasang, sisanya menunggu hasilnya.
     private fun ensureInstalled(c: SshConnection, hostId: String) {
         if (installed[hostId] == true) return
+        synchronized(installLocks.getOrPut(hostId) { Any() }) {
+            if (installed[hostId] == true) return
+            installNow(c, hostId)
+        }
+    }
+
+    private fun installNow(c: SshConnection, hostId: String) {
         val v = c.exec("$PY $REMOTE version 2>/dev/null; command -v python3 >/dev/null 2>&1 || echo NOPY", timeoutSec = 15)
         if (v.stdout.contains("NOPY")) throw SshException(S.get(R.string.agent_no_python), fatal = true)
         if (v.stdout.trim().toIntOrNull() != scriptVersion) {
             val r = c.exec(
-                "mkdir -p ~/.termx && chmod 700 ~/.termx && cat > ~/.termx/agentd.py.tmp && " +
-                    "chmod 700 ~/.termx/agentd.py.tmp && mv ~/.termx/agentd.py.tmp $REMOTE && echo OK",
+                // Nama sementara unik per proses ($$) agar dua pemasangan tidak saling menimpa.
+                "mkdir -p ~/.termx && chmod 700 ~/.termx && t=~/.termx/agentd.py.tmp.$$ && cat > \"\$t\" && " +
+                    "chmod 700 \"\$t\" && mv -f \"\$t\" $REMOTE && echo OK",
                 timeoutSec = 30, stdin = String(script),
             )
             if (!r.stdout.contains("OK")) throw SshException(S.get(R.string.agent_install_failed, r.stderr.take(200)))
@@ -278,6 +289,21 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         @Volatile private var session: Session? = null
         private val queue = ArrayList<String>()
         private var lastNotified = -1
+        /** Berapa prompt terakhir yang dimuat saat membuka chat (0 = semua). */
+        @Volatile private var tailTurns = INITIAL_TURNS
+        @Volatile private var resetPending = false
+        private val _loadingOlder = MutableStateFlow(false)
+        val loadingOlder: StateFlow<Boolean> = _loadingOlder.asStateFlow()
+
+        /** Muat riwayat yang lebih lama: sambung ulang dengan batas lebih besar. */
+        fun loadOlder() {
+            if (_loadingOlder.value) return
+            tailTurns = if (tailTurns == 0 || tailTurns >= 160) 0 else tailTurns * 4
+            _loadingOlder.value = true
+            resetPending = true
+            runCatching { session?.close() }
+            if (job?.isActive != true) start()
+        }
 
         internal fun start() {
             job = scope.launch {
@@ -305,8 +331,12 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     val client = c.client ?: throw SshException(S.get(R.string.ssh_not_connected))
                     val s = client.startSession()
                     session = s
+                    if (resetPending) {
+                        synchronized(reducer) { reducer.reset() }
+                        resetPending = false
+                    }
                     val from = synchronized(reducer) { reducer.lastSeq + 1 }
-                    val cmd = s.exec("$PY $REMOTE attach ${shq(chatId)} $from")
+                    val cmd = s.exec("$PY $REMOTE attach ${shq(chatId)} $from" + if (from == 0 && tailTurns > 0) " $tailTurns" else "")
                     val o = cmd.outputStream
                     out = o
                     synchronized(queue) {
@@ -318,6 +348,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     mark()
                     first = false
                     backoff = 1000L
+                    if (_loadingOlder.value) scope.launch { delay(600); _loadingOlder.value = false }
                     val reader = cmd.inputStream.bufferedReader(Charsets.UTF_8)
                     while (true) {
                         val line = reader.readLine() ?: break
@@ -349,7 +380,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     session = null
                 }
                 if (!_chats.value.containsKey(chatId)) return
-                delay(backoff)
+                if (!resetPending) delay(backoff)
                 backoff = (backoff * 2).coerceAtMost(8000)
             }
         }
@@ -473,6 +504,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         const val REMOTE = "~/.termx/agentd.py"
         const val PY = "python3"
         private const val CHANNEL = "agents_sound"
+        const val INITIAL_TURNS = 20
         private const val OLD_CHANNEL = "agents"
     }
 }

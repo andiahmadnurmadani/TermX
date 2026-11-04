@@ -3,6 +3,25 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.5] - 2026-11-04
+
+### Changed
+- Opening a chat now lands on the newest message right away. Only the last 20 prompts load at first. A
+  "Load earlier prompts" button at the top brings in older history when you want it.
+- New loading screen while a conversation opens: the agent's logo inside a spinning ring in its brand color, over a
+  shimmering preview of the conversation. It stays until the history has arrived, so the list no longer fills in
+  while you watch.
+- Chat look: the agent's name and logo above each answer, icons for model, tokens, cost and duration under a turn,
+  icons on notes and errors, a compact "Live" chip for tmux/herdr sessions, and a terminal button in the top bar.
+- Terminal locations such as "pts/0" are no longer shown on sessions and chats.
+
+### Fixed
+- "Failed to install the agent helper (chmod: cannot access agentd.py.tmp)" when opening the AI agents screen
+  right after an update. Several requests installed the helper at the same time and replaced each other's
+  temporary file. Only one install runs now, and each uses its own temporary file.
+- Typing lag in the terminal. Keystrokes are sent before command tracking runs. The suggestion bar now keeps a
+  fixed height, so the terminal no longer resizes (and the shell redraws) as suggestions appear and disappear.
+
 ## [0.10.4] - 2026-11-04
 
 ### Added

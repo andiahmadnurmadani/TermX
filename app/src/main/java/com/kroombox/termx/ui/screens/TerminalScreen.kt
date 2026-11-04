@@ -713,9 +713,11 @@ private fun SuggestionsBar(current: TerminalSession, autocomplete: Boolean, snip
         val l = inputLine
         if (autocomplete && !l.isNullOrEmpty()) mgr.suggestions(current.host.id, l) else emptyList()
     }
-    if (askPassword || suggestions.isNotEmpty()) {
+    // Saat autocomplete aktif tinggi bar tetap: bila bar muncul/hilang tiap ketikan, ukuran terminal ikut berubah,
+    // server menerima resize dan menggambar ulang baris, sehingga ketikan terasa tertunda.
+    if (autocomplete || askPassword) {
         Row(
-            Modifier.fillMaxWidth().background(Palette.Bg).horizontalScroll(rememberScrollState())
+            Modifier.fillMaxWidth().height(40.dp).background(Palette.Bg).horizontalScroll(rememberScrollState())
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
