@@ -214,6 +214,14 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     it.arr("models")?.mapNotNull { m -> (m as? JsonPrimitive)?.content } ?: emptyList(),
                     it.arr("modes")?.mapNotNull { m -> (m as? JsonPrimitive)?.content } ?: emptyList(),
                     it.str("login"), it.str("login_cmd").ifEmpty { it.str("bin") }, it.str("resume_cmd").ifEmpty { it.str("bin") },
+                    it.bool("can_update") == true,
+                    it.arr("efforts")?.mapNotNull { m -> (m as? JsonPrimitive)?.content } ?: emptyList(),
+                    it.arr("model_list")?.mapNotNull { m ->
+                        (m as? JsonObject)?.let { c ->
+                            Choice(c.str("id"), c.str("name"), c.str("desc"),
+                                c.arr("efforts")?.mapNotNull { x -> (x as? JsonPrimitive)?.content } ?: emptyList())
+                        }
+                    } ?: emptyList(),
                 )
             }
         }?.also { l ->
@@ -314,14 +322,23 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         }
     }
 
-    suspend fun newChat(hostId: String, agent: String, cwd: String, model: String, mode: String, inTerminal: Boolean = false): String =
+    suspend fun newChat(hostId: String, agent: String, cwd: String, model: String, mode: String, inTerminal: Boolean = false, effort: String = ""): String =
         withContext(Dispatchers.IO) {
             rememberFolder(hostId, cwd)
-            prefs.edit().putBoolean("term_$agent", inTerminal).apply()
-            val id = run(hostId, "new ${shq(agent)} ${shq(cwd)} ${shq(model)} ${shq(mode)}" + if (inTerminal) " tmux" else "", timeoutSec = 40).str("id")
+            prefs.edit().putBoolean("term_$agent", inTerminal).putString("effort_$agent", effort).apply()
+            val id = run(hostId, "new ${shq(agent)} ${shq(cwd)} ${shq(model)} ${shq(mode)} ${if (inTerminal) "tmux" else "chat"} ${shq(effort)}", timeoutSec = 40).str("id")
             if (inTerminal) runCatching { list(hostId) }
             id
         }
+
+    fun lastEffort(agent: String): String = prefs.getString("effort_$agent", "") ?: ""
+
+    /** Perbarui agent di host ke versi terbaru (perintah update resmi agent); daftar agent dideteksi ulang. */
+    suspend fun updateAgent(hostId: String, agent: String): AgentUpdate = withContext(Dispatchers.IO) {
+        val o = run(hostId, "update ${shq(agent)}", timeoutSec = 960)
+        runCatching { detect(hostId) }
+        AgentUpdate(o.bool("ok") == true, o.str("before"), o.str("after"), o.str("out"))
+    }
 
     /** Pilihan terakhir "tampilkan juga di terminal" untuk agent ini (bawaan: aktif untuk Claude & Codex). */
     fun lastInTerminal(agent: String): Boolean = prefs.getBoolean("term_$agent", agent == "claude")
@@ -711,6 +728,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
             write(buildJsonObject { put("c", "perm"); put("rid", rid); put("allow", allow); put("always", always) })
         fun setModel(model: String) = write(buildJsonObject { put("c", "model"); put("model", model) })
         fun setMode(mode: String) = write(buildJsonObject { put("c", "mode"); put("mode", mode) })
+        fun setEffort(effort: String) = write(buildJsonObject { put("c", "effort"); put("effort", effort) })
         fun interrupt() = write(buildJsonObject { put("c", "stop") })
 
         private fun maybeNotify(ev: JsonObject) {

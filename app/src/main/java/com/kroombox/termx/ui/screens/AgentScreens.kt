@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Payments
@@ -212,7 +213,29 @@ private fun modeLabel(id: String): String = when (id) {
 }
 
 private fun modelLabel(id: String, choices: List<Choice>): String =
-    choices.firstOrNull { it.id == id }?.name?.ifBlank { null } ?: id.ifBlank { S.get(R.string.agent_default) }
+    choices.firstOrNull { it.id == id || (id.isBlank() && it.id == "default") }?.name?.ifBlank { null }
+        ?: id.ifBlank { S.get(R.string.agent_default) }
+
+/** Nama level effort untuk tampilan. */
+private fun effortLabel(id: String, choices: List<Choice> = emptyList()): String = when (id) {
+    "" -> S.get(R.string.agent_default)
+    "low" -> S.get(R.string.agent_effort_low)
+    "medium" -> S.get(R.string.agent_effort_medium)
+    "high" -> S.get(R.string.agent_effort_high)
+    "xhigh" -> S.get(R.string.agent_effort_xhigh)
+    "max" -> S.get(R.string.agent_effort_max)
+    else -> choices.firstOrNull { it.id == id }?.name?.ifBlank { null } ?: id.replaceFirstChar { it.uppercase() }
+}
+
+/** Level effort untuk model terpilih: dari daftar model (per model) bila ada, selain itu dari agent. */
+private fun effortsFor(model: String, models: List<Choice>, agentLevel: List<Choice>): List<Choice> {
+    val m = models.firstOrNull { it.id == model || (model.isBlank() && it.id == "default") }
+    return when {
+        m != null && m.efforts.isNotEmpty() -> m.efforts.map { Choice(it, effortLabel(it)) }
+        m != null && models.any { it.efforts.isNotEmpty() } -> emptyList() // model ini tidak mendukung effort
+        else -> agentLevel
+    }
+}
 
 private fun formatTokens(n: Long): String = when {
     n >= 1_000_000 -> String.format(Locale.US, "%.1fM", n / 1_000_000.0)
@@ -1071,7 +1094,13 @@ private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, preselect: Str
     var inTerminal by remember(agentId) { mutableStateOf(mgr.lastInTerminal(agentId)) }
     val agent = agents.firstOrNull { it.id == agentId }
     var folder by remember { mutableStateOf(recent.firstOrNull() ?: "~") }
-    var model by remember(agentId) { mutableStateOf(mgr.lastModel(agentId).takeIf { m -> agent?.models?.contains(m) == true } ?: "") }
+    val modelOptions = agent?.modelChoices?.filter { it.id != "default" }?.ifEmpty { null } ?: agent?.models?.map { Choice(it, it) } ?: emptyList()
+    var model by remember(agentId) { mutableStateOf(mgr.lastModel(agentId).takeIf { m -> modelOptions.any { it.id == m } } ?: "") }
+    var effort by remember(agentId) { mutableStateOf(mgr.lastEffort(agentId).takeIf { e -> agent?.efforts?.contains(e) == true } ?: "") }
+    var updating by remember { mutableStateOf(false) }
+    var updateMsg by remember(agentId) { mutableStateOf<String?>(null) }
+    var updateOk by remember(agentId) { mutableStateOf(true) }
+    var shownVersion by remember(agentId) { mutableStateOf(agent?.version ?: "") }
     var mode by remember(agentId) { mutableStateOf(agent?.modes?.firstOrNull() ?: "") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -1103,6 +1132,53 @@ private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, preselect: Str
                 }
             }
 
+            if (agent != null && (agent.canUpdate || shownVersion.isNotBlank())) {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        shownVersion.ifBlank { agent.name }, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                    if (agent.canUpdate) {
+                        if (updating) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.Accent)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.agent_updating), style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
+                        } else {
+                            TextButton(onClick = {
+                                updating = true
+                                updateMsg = null
+                                scope.launch {
+                                    try {
+                                        val r = mgr.updateAgent(hostId, agent.id)
+                                        updateOk = r.ok
+                                        if (r.after.isNotBlank()) shownVersion = r.after
+                                        updateMsg = when {
+                                            !r.ok -> S.get(R.string.agent_update_failed, r.output.lines().lastOrNull { it.isNotBlank() } ?: "")
+                                            r.before.isNotBlank() && r.before != r.after -> S.get(R.string.agent_update_done, r.before.substringBefore(' '), r.after.substringBefore(' '))
+                                            else -> S.get(R.string.agent_update_latest)
+                                        }
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        updateOk = false
+                                        updateMsg = S.get(R.string.agent_update_failed, e.message ?: e.toString())
+                                    }
+                                    updating = false
+                                }
+                            }) {
+                                Icon(Icons.Rounded.SystemUpdate, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(stringResource(R.string.agent_update))
+                            }
+                        }
+                    }
+                }
+                updateMsg?.let { m ->
+                    Text(m, style = MaterialTheme.typography.bodySmall, color = if (updateOk) Palette.Accent else Palette.Danger)
+                }
+            }
+
             Spacer(Modifier.height(18.dp))
             FieldLabel(stringResource(R.string.agent_field_folder))
             OutlinedTextField(
@@ -1120,13 +1196,27 @@ private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, preselect: Str
                 }
             }
 
-            if (agent != null && agent.models.isNotEmpty()) {
+            if (agent != null && modelOptions.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
                 FieldLabel(stringResource(R.string.agent_field_model))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     SmallChip(stringResource(R.string.agent_default), model.isEmpty()) { model = "" }
-                    agent.models.forEach { m -> SmallChip(m, model == m) { model = m } }
+                    modelOptions.forEach { m -> SmallChip(m.name.ifBlank { m.id }, model == m.id) { model = m.id } }
                 }
+                modelOptions.firstOrNull { it.id == model }?.desc?.takeIf { it.isNotBlank() }?.let { d ->
+                    Text(d, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+            val effortOptions = if (agent == null || agent.efforts.isEmpty()) emptyList()
+            else effortsFor(model, agent.modelChoices, agent.efforts.map { Choice(it, effortLabel(it)) })
+            if (effortOptions.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                FieldLabel(stringResource(R.string.agent_field_effort))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SmallChip(stringResource(R.string.agent_default), effort.isEmpty()) { effort = "" }
+                    effortOptions.forEach { e -> SmallChip(e.name, effort == e.id) { effort = e.id } }
+                }
+                Text(stringResource(R.string.agent_effort_hint), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, modifier = Modifier.padding(top = 6.dp))
             }
             if (agent != null && agent.modes.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
@@ -1169,7 +1259,8 @@ private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, preselect: Str
                                 error = S.get(R.string.agent_folder_missing)
                             } else {
                                 mgr.rememberChoice(hostId, a.id, model)
-                                onCreated(mgr.newChat(hostId, a.id, dir, model, mode, inTerminal))
+                                val eff = effort.takeIf { e -> effortOptions.any { it.id == e } } ?: ""
+                                onCreated(mgr.newChat(hostId, a.id, dir, model, mode, inTerminal, eff))
                             }
                         } catch (e: CancellationException) {
                             throw e
@@ -1279,7 +1370,7 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
         if (!state.synced) { delay(10_000); loadTimedOut = true }
     }
 
-    val modelChoices = state.models.ifEmpty { agent?.models?.map { Choice(it, it) } ?: emptyList() }
+    val modelChoices = state.models.ifEmpty { agent?.modelChoices?.ifEmpty { null } ?: agent?.models?.map { Choice(it, it) } ?: emptyList() }
     val modeChoices = state.modes.ifEmpty { agent?.modes?.map { Choice(it, modeLabel(it)) } ?: emptyList() }
     val currentModel = state.model.ifBlank { meta?.model ?: "" }
     val currentMode = state.mode.ifBlank { meta?.mode ?: "" }
@@ -1383,9 +1474,10 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                 state = state,
                 agentName = agent?.name ?: meta?.agent ?: "",
                 // Sesi Claude yang diikuti: ganti model diketik sebagai /model di sesinya sendiri.
-                models = if (mirror == null) modelChoices
-                else if (meta?.agent == "claude") (agent?.models?.map { Choice(it, it) } ?: emptyList()) else emptyList(),
+                models = if (mirror == null || meta?.agent == "claude") modelChoices else emptyList(),
                 model = if (mirror != null && meta?.agent != "claude") "" else currentModel,
+                effort = state.effort, efforts = if (mirror != null && meta?.agent != "claude") emptyList() else state.efforts,
+                onEffort = { chat.setEffort(it) },
                 modes = if (mirror != null) emptyList() else modeChoices, mode = currentMode,
                 onModel = { chat.setModel(it); mgr.rememberChoice(hostId, meta?.agent ?: "", it) },
                 onMode = { chat.setMode(it) },
@@ -1953,6 +2045,9 @@ internal fun Composer(
     modes: List<Choice>, mode: String,
     onModel: (String) -> Unit,
     onMode: (String) -> Unit,
+    effort: String = "",
+    efforts: List<Choice> = emptyList(),
+    onEffort: (String) -> Unit = {},
     onSend: () -> Unit,
     onStop: () -> Unit,
     canCompact: Boolean = false,
@@ -1968,8 +2063,8 @@ internal fun Composer(
         Column(Modifier.navigationBarsPadding().imePadding().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)) {
             if (slash.isNotEmpty()) SlashList(slash) { onText("/" + it.name + " ") }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (models.isNotEmpty() || model.isNotBlank()) {
-                    PickerChip(Icons.Rounded.AutoAwesome, modelLabel(model, models), models, model, onModel)
+                if (models.isNotEmpty() || model.isNotBlank() || efforts.isNotEmpty()) {
+                    ModelChip(models, model, efforts, effort, onModel, onEffort)
                 }
                 if (modes.isNotEmpty()) PickerChip(Icons.Rounded.Tune, modeLabel(mode).let { l -> modes.firstOrNull { it.id == mode }?.name ?: l }, modes, mode, onMode)
                 if (state.contextUsed > 0) ContextChip(state.contextUsed, state.contextSize, canCompact && !state.working, onCompact)
@@ -2064,6 +2159,64 @@ private fun RoundAction(icon: ImageVector, desc: String, color: Color, onClick: 
     Surface(onClick = onClick, enabled = enabled, shape = CircleShape, color = color, modifier = Modifier.size(48.dp)) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, desc, tint = if (enabled) Palette.Bg else Palette.TextDim, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+/** Chip model + effort; ketuk untuk lembar pilihan lengkap (model beserta keterangannya, lalu effort). */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ModelChip(
+    models: List<Choice>, model: String, agentEfforts: List<Choice>, effort: String,
+    onModel: (String) -> Unit, onEffort: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val levels = effortsFor(model, models, agentEfforts)
+    val label = modelLabel(model, models) + if (effort.isNotBlank() && levels.isNotEmpty()) " · " + effortLabel(effort, levels) else ""
+    Surface(onClick = { open = true }, shape = RoundedCornerShape(10.dp), color = Palette.SurfaceHigh) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.AutoAwesome, null, tint = Palette.TextDim, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
+            Icon(Icons.Rounded.ExpandMore, null, tint = Palette.TextDim, modifier = Modifier.size(14.dp))
+        }
+    }
+    if (!open) return
+    ModalBottomSheet(onDismissRequest = { open = false }, containerColor = Palette.Surface) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            Text(stringResource(R.string.agent_model_effort_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            if (models.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                FieldLabel(stringResource(R.string.agent_field_model))
+                Column(Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.SurfaceHigh)) {
+                    models.forEach { c ->
+                        val sel = c.id == model || (model.isBlank() && c.id == "default")
+                        Row(
+                            Modifier.fillMaxWidth().clickable { if (!sel) onModel(c.id) }.padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(c.name.ifBlank { c.id }, style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal, color = if (sel) Palette.Accent else Palette.Text)
+                                if (c.desc.isNotBlank()) Text(c.desc, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (sel) Icon(Icons.Rounded.Check, null, tint = Palette.Accent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            FieldLabel(stringResource(R.string.agent_field_effort))
+            if (levels.isEmpty()) {
+                Text(stringResource(R.string.agent_effort_none), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SmallChip(stringResource(R.string.agent_default), effort.isBlank()) { if (effort.isNotBlank()) onEffort("") }
+                    levels.forEach { e -> SmallChip(e.name, effort == e.id) { if (effort != e.id) onEffort(e.id) } }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.agent_effort_hint), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+            }
         }
     }
 }

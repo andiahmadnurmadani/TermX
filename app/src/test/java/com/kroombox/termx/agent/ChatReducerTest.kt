@@ -121,4 +121,19 @@ class ChatReducerTest {
         r.reset()
         assertEquals(false, r.snapshot().synced)
     }
+
+    @Test fun modelsCarryDescriptionAndEfforts() {
+        val r = ChatReducer()
+        r.apply(ev("""{"t":"models","list":[{"id":"opus","name":"Opus 5.5","desc":"For complex work","efforts":["low","high","max"]},{"id":"claude-haiku-4-5","name":"Haiku 4.5"}],"current":"opus","n":0}"""))
+        r.apply(ev("""{"t":"efforts","list":[{"id":"low","name":"low"},{"id":"max","name":"max"}],"current":"high","n":1}"""))
+        var s = r.snapshot()
+        assertEquals(Choice("opus", "Opus 5.5", "For complex work", listOf("low", "high", "max")), s.models[0])
+        assertEquals(emptyList<String>(), s.models[1].efforts)
+        assertEquals("opus", s.model)
+        assertEquals("high", s.effort)
+        assertEquals(2, s.efforts.size)
+        r.apply(ev("""{"t":"effort","effort":"","n":2}"""))
+        s = r.snapshot()
+        assertEquals("", s.effort)
+    }
 }

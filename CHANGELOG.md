@@ -3,6 +3,13 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.18] - 2026-11-04
+
+### Added
+- Model & effort sheet in chat: tap the model chip to see every model the agent reports (for Claude Code: Opus, Sonnet, Haiku, Fable and pinned versions, each with its description) and pick an effort level (Low, Medium, High, Extra high, Max, or Default). Only the levels the chosen model supports are shown. For Claude Code the effort changes in the running session without a restart; in a Claude session open in a terminal it is sent as `/effort`. opencode/Hermes show effort when their ACP server offers a thought-level option.
+- Effort choice when starting a new Claude Code chat, plus model descriptions.
+- Update agents from TermX: the new-chat sheet shows the installed version and an Update button (Claude Code `claude update`, opencode `opencode upgrade`, Hermes `hermes update --yes`), then shows the old → new version.
+
 ## [0.10.17] - 2026-11-04
 
 ### Fixed

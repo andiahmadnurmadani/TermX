@@ -24,6 +24,12 @@ data class AgentInfo(
     val loginCmd: String = bin,
     /** Template untuk melanjutkan sesi di terminal; `{session}` diganti id sesi. */
     val resumeCmd: String = bin,
+    /** Bisa diperbarui dari TermX (perintah update resmi agent). */
+    val canUpdate: Boolean = false,
+    /** Level effort yang bisa dipilih saat membuat chat (Claude Code). */
+    val efforts: List<String> = emptyList(),
+    /** Daftar model lengkap yang dilaporkan agent (nama, keterangan, effort per model). */
+    val modelChoices: List<Choice> = emptyList(),
 ) {
     val isChat: Boolean get() = kind == "chat"
 }
@@ -112,7 +118,11 @@ data class LimitWindow(val key: String, val used: Double?, val resetEpochSec: Lo
 
 data class SlashCommand(val name: String, val desc: String, val hint: String)
 
-data class Choice(val id: String, val name: String)
+/** Pilihan model/mode/effort. [efforts] = level effort yang didukung model ini (kosong = tanpa effort). */
+data class Choice(val id: String, val name: String, val desc: String = "", val efforts: List<String> = emptyList())
+
+/** Hasil `agentd.py update <agent>`. */
+data class AgentUpdate(val ok: Boolean, val before: String, val after: String, val output: String)
 
 sealed interface ChatItem {
     val key: String
@@ -179,6 +189,9 @@ data class ChatState(
     /** Model yang dilaporkan agent (opencode, pi). Kosong = pakai daftar bawaan katalog. */
     val models: List<Choice> = emptyList(),
     val modes: List<Choice> = emptyList(),
+    /** Effort/penalaran aktif ("" = bawaan model) dan level yang ditawarkan agent. */
+    val effort: String = "",
+    val efforts: List<Choice> = emptyList(),
     val contextUsed: Long = 0,
     val contextSize: Long = 0,
     /** Status sementara (mis. "Reconnecting… 2/5"), hilang saat ada kemajuan. */
@@ -243,9 +256,19 @@ class ChatReducer {
         when (t) {
             "retry" -> state = state.copy(retry = o.str("msg"))
             "models" -> state = state.copy(
-                models = o.arr("list")?.mapNotNull { e -> (e as? JsonObject)?.let { Choice(it.str("id"), it.str("name")) } } ?: emptyList(),
+                models = o.arr("list")?.mapNotNull { e ->
+                    (e as? JsonObject)?.let {
+                        Choice(it.str("id"), it.str("name"), it.str("desc"),
+                            it.arr("efforts")?.mapNotNull { x -> (x as? JsonPrimitive)?.content } ?: emptyList())
+                    }
+                } ?: emptyList(),
                 model = o.str("current").ifEmpty { state.model },
             )
+            "efforts" -> state = state.copy(
+                efforts = o.arr("list")?.mapNotNull { e -> (e as? JsonObject)?.let { Choice(it.str("id"), it.str("name")) } } ?: emptyList(),
+                effort = o.str("current"),
+            )
+            "effort" -> state = state.copy(effort = o.str("effort"))
             "modes" -> state = state.copy(
                 modes = o.arr("list")?.mapNotNull { e -> (e as? JsonObject)?.let { Choice(it.str("id"), it.str("name")) } } ?: emptyList(),
                 mode = o.str("current").ifEmpty { state.mode },

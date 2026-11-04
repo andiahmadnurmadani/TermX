@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 
-VERSION = 16
+VERSION = 17
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -165,6 +165,38 @@ def _save_json(path, obj):
         pass
 
 
+# Perintah pembaruan resmi tiap agent (dijalankan dengan binary yang terdeteksi).
+UPDATE_ARGS = {"claude": ["update"], "opencode": ["upgrade"], "hermes": ["update", "--yes"]}
+
+
+def cmd_update(args):
+    """update <agent>: perbarui agent ke versi terbaru lewat perintah resminya; cetak versi sebelum/sesudah."""
+    a = next((c for c in CATALOG if c["id"] == (args[0] if args else "")), None)
+    if not a or a["id"] not in UPDATE_ARGS:
+        raise SystemExit("this agent cannot be updated from TermX; use its own installer")
+    binp = first_bin(*a["bins"])
+    if not binp:
+        raise SystemExit("agent not found: " + a["id"])
+    env_path()
+    before = version_of(binp)
+    try:
+        r = subprocess.run([binp] + UPDATE_ARGS[a["id"]], capture_output=True, text=True, timeout=900,
+                           stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+        code, out = r.returncode, _ANSI.sub("", (r.stdout or "") + (r.stderr or ""))
+    except subprocess.TimeoutExpired:
+        code, out = -1, "update timed out after 15 minutes"
+    binp = first_bin(*a["bins"]) or binp
+    after = version_of(binp)
+    try:  # versi baru harus terbaca lagi oleh detect
+        cache = _load_json(DETECT_CACHE) or {}
+        rp = os.path.realpath(binp)
+        cache = {k: v for k, v in cache.items() if not k.startswith(rp + "|")}
+        _save_json(DETECT_CACHE, cache)
+    except Exception:
+        pass
+    print(jdump({"ok": code == 0, "before": before, "after": after, "out": out.strip()[-1500:]}))
+
+
 def cmd_detect(_args):
     # "--version" tiap agent bisa makan detik: hasilnya disimpan per (path, mtime) binary.
     cache = _load_json(DETECT_CACHE) or {}
@@ -199,6 +231,9 @@ def cmd_detect(_args):
             "models": a["models"], "modes": a["modes"], "login": a["login"],
             "login_cmd": a.get("login_cmd", "{bin}").replace("{bin}", p),
             "resume_cmd": a.get("resume_cmd", "{bin}").replace("{bin}", p),
+            "can_update": a["id"] in UPDATE_ARGS,
+            "efforts": CLAUDE_EFFORTS if a["id"] == "claude" else [],
+            "model_list": _claude_models_cached() if a["id"] == "claude" else [],
         })
     print(jdump({"v": VERSION, "agents": found, "tmux": bool(shutil.which("tmux"))}))
 
@@ -296,12 +331,16 @@ def cmd_new(args):
         raise SystemExit("unsupported agent: " + agent)
     if not os.path.isdir(cwd):
         raise SystemExit("folder not found: " + cwd)
-    mirror = _new_in_tmux(agent, os.path.abspath(cwd), args[2] if len(args) > 2 else "", args[3] if len(args) > 3 else "") if in_tmux else None
+    effort = args[5] if len(args) > 5 and re.match(r"^[a-z]+$", args[5] or "") else ""
+    extra = ("--effort", effort) if effort and agent == "claude" else ()
+    mirror = _new_in_tmux(agent, os.path.abspath(cwd), args[2] if len(args) > 2 else "", args[3] if len(args) > 3 else "",
+                          extra) if in_tmux else None
     cid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     os.makedirs(chat_dir(cid), mode=0o700)
     meta = {
         "id": cid, "agent": agent, "cwd": os.path.abspath(cwd), "title": "",
         "model": args[2] if len(args) > 2 and args[2] else "", "mode": args[3] if len(args) > 3 and args[3] else "",
+        "effort": effort,
         "session": "", "created": now_ms(), "updated": now_ms(), "status": "idle",
         "cost": 0.0, "tokens_in": 0, "tokens_out": 0,
     }
@@ -552,7 +591,7 @@ def _follow_events(path, start, prelude, write, flush, stop):
                 flush()
                 last_data = time.time()
 
-STATE_EVENTS = ("init", "model", "mode", "models", "modes", "commands", "limits", "context", "mirror_end")
+STATE_EVENTS = ("init", "model", "mode", "models", "modes", "effort", "efforts", "commands", "limits", "context", "mirror_end")
 
 
 def _tail_start(path, turns):
@@ -633,6 +672,12 @@ class Worker:
             self.adapter.set_model(cmd.get("model") or "")
         elif c == "mode":
             self.adapter.set_mode(cmd.get("mode") or "")
+        elif c == "effort":
+            fn = getattr(self.adapter, "set_effort", None)
+            if fn:
+                fn(cmd.get("effort") or "")
+            else:
+                self.emit({"t": "note", "msg": "This agent has no effort setting."})
         elif c == "stop":
             self.adapter.interrupt()
         elif c == "_quit":
@@ -827,6 +872,56 @@ def result_text(content):
     return jdump(content) if content is not None else ""
 
 
+CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+
+
+def _claude_models_path():
+    return os.path.join(os.path.expanduser("~"), ".termx", "claude-models.json")
+
+
+def _claude_models_from_init(models):
+    """Respons initialize Claude Code → [{id,name,desc,efforts}] (efforts kosong = model tanpa effort)."""
+    out = []
+    for m in models or []:
+        if not isinstance(m, dict) or not m.get("value"):
+            continue
+        eff = [e for e in (m.get("supportedEffortLevels") or []) if isinstance(e, str)] if m.get("supportsEffort") else []
+        desc = str(m.get("description") or "")
+        if m.get("resolvedModel") and m.get("resolvedModel") != m.get("value"):
+            desc = (desc + " · " if desc else "") + str(m["resolvedModel"])
+        out.append({"id": str(m["value"]), "name": str(m.get("displayName") or m["value"]),
+                    "desc": clip(desc, 160), "efforts": eff})
+    return out[:300]
+
+
+def _claude_models_cached():
+    try:
+        with open(_claude_models_path(), encoding="utf-8") as f:
+            v = json.load(f)
+        return v if isinstance(v, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _claude_models_save(items):
+    try:
+        path = _claude_models_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".%d" % os.getpid()
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(jdump(items))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def _emit_claude_choices(w, current_model=None):
+    items = _claude_models_cached()
+    if items:
+        w.emit({"t": "models", "list": items, "current": current_model if current_model is not None else (w.meta.get("model") or "")})
+    w.emit({"t": "efforts", "list": [{"id": e, "name": e} for e in CLAUDE_EFFORTS], "current": w.meta.get("effort") or ""})
+
+
 class ClaudeAdapter:
     def __init__(self, w):
         self.w = w
@@ -838,6 +933,9 @@ class ClaudeAdapter:
         self.buf_lock = threading.Lock()
         self.req = 0
         threading.Thread(target=self._flusher, daemon=True).start()
+        _emit_claude_choices(w)
+        if not _claude_models_cached():  # daftar model lengkap baru ada setelah Claude Code dijalankan sekali
+            threading.Thread(target=self.ensure, daemon=True).start()
 
     # -- proses
     def ensure(self):
@@ -851,6 +949,8 @@ class ClaudeAdapter:
             cmd += ["--permission-mode", m["mode"]]
         if m.get("model"):
             cmd += ["--model", m["model"]]
+        if m.get("effort") in CLAUDE_EFFORTS:
+            cmd += ["--effort", m["effort"]]
         if m.get("session"):
             cmd += ["--resume", m["session"]]
         self.proc = subprocess.Popen(cmd, cwd=m["cwd"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -902,6 +1002,14 @@ class ClaudeAdapter:
         if self.proc and self.proc.poll() is None:
             self._control({"subtype": "set_permission_mode", "mode": mode})
         self.w.emit({"t": "mode", "mode": mode})
+
+    def set_effort(self, effort):
+        effort = effort if effort in CLAUDE_EFFORTS else ""
+        self.w.save_meta(effort=effort)
+        if self.proc and self.proc.poll() is None:
+            # Diterapkan langsung ke sesi yang berjalan (tanpa restart); "" = kembali ke bawaan model.
+            self._control({"subtype": "apply_flag_settings", "settings": {"effortLevel": effort or None}})
+        self.w.emit({"t": "effort", "effort": effort})
 
     def interrupt(self):
         if self.proc and self.proc.poll() is None:
@@ -1028,6 +1136,10 @@ class ClaudeAdapter:
         elif t == "control_response":
             r = o.get("response") or {}
             if r.get("request_id") == "init" and r.get("subtype") == "success":
+                models = _claude_models_from_init((r.get("response") or {}).get("models"))
+                if models:
+                    _claude_models_save(models)
+                    self.w.emit({"t": "models", "list": models, "current": self.w.meta.get("model") or ""})
                 cmds = (r.get("response") or {}).get("commands") or []
                 self.w.emit({"t": "commands", "list": [
                     {"name": c.get("name"), "desc": clip(c.get("description", ""), 140), "hint": c.get("argumentHint", "")}
@@ -1128,7 +1240,8 @@ class StreamAdapter:
         self.w.set_busy(False)
 
     def models(self, items, current=None):
-        self.w.emit({"t": "models", "list": [{"id": i, "name": n} for i, n in items][:300], "current": current})
+        self.w.emit({"t": "models", "list": [i if isinstance(i, dict) else {"id": i[0], "name": i[1]} for i in items][:300],
+                     "current": current})
 
     # proses
     def spawn(self, cmd, cwd):
@@ -1224,8 +1337,17 @@ def content_text(c):
 
 # ---------------------------------------------------------------- adapter: Codex (codex exec --json)
 
+CODEX_EFFORTS = ["low", "medium", "high"]
+
+
 class CodexAdapter(StreamAdapter):
     """Satu proses `codex exec --json` per giliran; percakapan dilanjutkan dengan `exec resume <id>`."""
+
+    def set_effort(self, effort):
+        # Berlaku mulai giliran berikutnya (tiap giliran proses codex baru).
+        effort = effort if effort in CODEX_EFFORTS else ""
+        self.w.save_meta(effort=effort)
+        self.w.emit({"t": "effort", "effort": effort})
 
     def send(self, text):
         m = self.w.meta
@@ -1234,6 +1356,8 @@ class CodexAdapter(StreamAdapter):
             cmd += ["resume", m["session"]]
         if m.get("model"):
             cmd += ["-m", m["model"]]
+        if m.get("effort") in CODEX_EFFORTS:
+            cmd += ["-c", 'model_reasoning_effort="%s"' % m["effort"]]
         cmd += ["-c", 'sandbox_mode="%s"' % (m.get("mode") or "workspace-write"), "-"]
         self.started = time.time()
         self.usage = None
@@ -1402,6 +1526,11 @@ class AcpAdapter(StreamAdapter):
             if opt.get("category") == "model" or opt.get("id") == "model":
                 items = [(o.get("value"), o.get("name") or o.get("value")) for o in opt.get("options") or []]
                 current = opt.get("currentValue")
+            elif opt.get("category") == "thought_level" and opt.get("options"):
+                self.effort_opt = opt.get("id")
+                self.w.emit({"t": "efforts", "list": [{"id": o.get("value"), "name": o.get("name") or o.get("value")}
+                                                      for o in opt["options"] if o.get("value")],
+                             "current": opt.get("currentValue") or ""})
         if items:
             self.current_model = current
             self.models(items, current)
@@ -1443,6 +1572,15 @@ class AcpAdapter(StreamAdapter):
                         tin=u.get("inputTokens") or u.get("input_tokens") or 0,
                         tout=u.get("outputTokens") or u.get("output_tokens") or 0,
                         error="Stopped." if reason == "cancelled" else None)
+
+    def set_effort(self, effort):
+        opt = getattr(self, "effort_opt", None)
+        if not (opt and self.sid and self.alive()):
+            self.w.emit({"t": "note", "msg": "This agent has no effort setting."})
+            return
+        self.w.save_meta(effort=effort)
+        self.call("session/set_config_option", {"sessionId": self.sid, "configId": opt, "value": effort})
+        self.w.emit({"t": "effort", "effort": effort})
 
     def _set_model_rpc(self, model):
         def fallback(_res, err):
@@ -2762,6 +2900,8 @@ class MirrorAdapter:
         self.reviving = False
         self.ready_at = 0.0
         self.lock = threading.Lock()
+        if self.agent == "claude":
+            _emit_claude_choices(w)
         threading.Thread(target=self._loop, daemon=True).start()
 
     # -- target
@@ -2996,6 +3136,17 @@ class MirrorAdapter:
                 self.w.emit({"t": "error", "msg": "could not change the model: %s" % e})
             return
         self.w.emit({"t": "note", "msg": "Change the model in the agent's own session (e.g. /model)."})
+
+    def set_effort(self, effort):
+        if self.agent == "claude" and effort in CLAUDE_EFFORTS + [""] and self._interactive() and self._alive():
+            try:
+                self._type("/effort " + (effort or "auto"))
+                self.w.save_meta(effort=effort)
+                self.w.emit({"t": "effort", "effort": effort})
+            except Exception as e:
+                self.w.emit({"t": "error", "msg": "could not change the effort: %s" % e})
+            return
+        self.w.emit({"t": "note", "msg": "Change the effort in the agent's own session (e.g. /effort)."})
 
     def set_mode(self, mode):
         self.w.emit({"t": "note", "msg": "Change the mode in the agent's own session."})
@@ -3883,7 +4034,7 @@ COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
     "hermes-setup": cmd_hermes_setup, "wrap": cmd_wrap, "shell-setup": cmd_shell_setup,
-    "post": cmd_post, "isdir": cmd_isdir, "_wincon": cmd_wincon, "_winbridge": cmd_winbridge, "wport": cmd_wport,
+    "post": cmd_post, "isdir": cmd_isdir, "update": cmd_update, "_wincon": cmd_wincon, "_winbridge": cmd_winbridge, "wport": cmd_wport,
 }
 
 
