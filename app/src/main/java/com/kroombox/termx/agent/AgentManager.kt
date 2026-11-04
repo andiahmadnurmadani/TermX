@@ -511,6 +511,10 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         private var job: Job? = null
         @Volatile private var out: OutputStream? = null
         @Volatile private var session: Session? = null
+        /** Windows: sambungan langsung ke worker lewat port-forward SSH (tanpa PowerShell/cmd di tengah). */
+        @Volatile private var direct: net.schmizz.sshj.connection.channel.direct.DirectConnection? = null
+        @Volatile private var directLive = false
+        @Volatile private var noDirect = false
         private val queue = ArrayList<String>()
         private val postLock = Any()
         private var lastNotified = -1
@@ -526,8 +530,40 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
             tailTurns = if (tailTurns == 0 || tailTurns >= 160) 0 else tailTurns * 4
             _loadingOlder.value = true
             resetPending = true
-            runCatching { session?.close() }
+            closeLink()
             if (job?.isActive != true) start()
+        }
+
+        private fun closeLink() {
+            runCatching { session?.close() }
+            runCatching { direct?.close() }
+        }
+
+        /**
+         * Windows: minta alamat worker (`wport`), lalu buka direct-tcpip ke 127.0.0.1:port. Event mengalir
+         * langsung dari worker dan perintah masuk lewat sambungan yang sama, seperti soket di Linux.
+         * null bila server menolak port-forward (AllowTcpForwarding no) → pakai attach + post.
+         */
+        private fun openDirect(client: net.schmizz.sshj.SSHClient, from: Int): Pair<java.io.InputStream, OutputStream>? {
+            if (noDirect) return null
+            val wp = run(hostId, "wport ${shq(chatId)}", timeoutSec = 40)
+            if (wp.str("t") == "gone") throw GoneException()
+            val port = wp.long("port").toInt()
+            val dc = try {
+                client.newDirectConnection("127.0.0.1", port)
+            } catch (e: Exception) {
+                if (e is net.schmizz.sshj.connection.channel.OpenFailException) { noDirect = true; return null }
+                throw e
+            }
+            direct = dc
+            val o = dc.outputStream
+            val hello = buildJsonObject {
+                put("c", "_stream"); put("from", from)
+                if (from == 0 && tailTurns > 0) put("tail", tailTurns)
+            }
+            o.write((wp.str("token") + "\n" + hello + "\n").toByteArray())
+            o.flush()
+            return dc.inputStream to o
         }
 
         internal fun start() {
@@ -562,9 +598,20 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     }
                     val from = synchronized(reducer) { reducer.lastSeq + 1 }
                     val h = rh(hostId)
-                    val cmd = s.exec(h.line("attach ${shq(chatId)} $from" + (if (from == 0 && tailTurns > 0) " $tailTurns" else "") +
-                        if (h.windows) " --no-stdin" else ""))
-                    val o = cmd.outputStream
+                    val dio = if (h.windows) openDirect(client, from) else null
+                    val input: java.io.InputStream
+                    val o: OutputStream
+                    if (dio != null) {
+                        runCatching { s.close() }
+                        input = dio.first
+                        o = dio.second
+                        directLive = true
+                    } else {
+                        val cmd = s.exec(h.line("attach ${shq(chatId)} $from" + (if (from == 0 && tailTurns > 0) " $tailTurns" else "") +
+                            if (h.windows) " --no-stdin" else ""))
+                        input = cmd.inputStream
+                        o = cmd.outputStream
+                    }
                     out = o
                     synchronized(queue) {
                         for (line in queue) o.write((line + "\n").toByteArray())
@@ -576,7 +623,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     first = false
                     backoff = 1000L
                     if (_loadingOlder.value) scope.launch { delay(600); _loadingOlder.value = false }
-                    val reader = cmd.inputStream.bufferedReader(Charsets.UTF_8)
+                    val reader = input.bufferedReader(Charsets.UTF_8)
                     while (true) {
                         val line = reader.readLine() ?: break
                         if (line.isBlank()) continue
@@ -595,6 +642,8 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                         }
                         if (ev.str("t") == "gone") return
                     }
+                } catch (e: GoneException) {
+                    return
                 } catch (e: Exception) {
                     if (!_chats.value.containsKey(chatId)) return
                     val fatal = (e as? SshException)?.fatal == true
@@ -603,8 +652,10 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     if (fatal) return
                 } finally {
                     out = null
-                    runCatching { session?.close() }
+                    directLive = false
+                    closeLink()
                     session = null
+                    direct = null
                 }
                 if (!_chats.value.containsKey(chatId)) return
                 if (!resetPending) delay(backoff)
@@ -614,12 +665,12 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
         /** Coba sambung lagi sekarang (mis. setelah gagal). */
         fun retry() {
-            if (job?.isActive != true) start() else runCatching { session?.close() }
+            if (job?.isActive != true) start() else closeLink()
         }
 
         internal fun stop() {
             job?.cancel()
-            runCatching { session?.close() }
+            closeLink()
         }
 
         /** Simpan isi yang sudah lengkap agar pembukaan berikutnya seketika (lanjut dari urutan terakhir). */
@@ -630,7 +681,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
         private fun write(o: JsonObject) {
             val line = o.toString()
-            if (rh(hostId).windows) {
+            if (rh(hostId).windows && !directLive) {
                 // Windows: stdin lewat PowerShell/cmd tidak bisa diandalkan, kirim tiap perintah sendiri-sendiri.
                 scope.launch {
                     synchronized(postLock) {
@@ -760,3 +811,6 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
 /** Host belum punya Python 3; [os] = salah satu AgentManager.OS_* agar UI bisa menawarkan pemasangan. */
 class NoPythonException(val os: String) : SshException(S.get(R.string.agent_no_python), fatal = true)
+
+/** Chat sudah dihapus di server. */
+private class GoneException : Exception("gone")

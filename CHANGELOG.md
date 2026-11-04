@@ -3,6 +3,11 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.15] - 2026-11-04
+### Fixed
+- Windows hosts: AI agent chats are now live like on Linux. The app talks to the chat worker over an SSH port-forward (direct-tcpip to 127.0.0.1) instead of through the host's PowerShell/cmd, which could hold back streamed output; messages, permission answers, model and mode changes go over the same connection instead of starting a new Python process per message. Falls back to the previous method when the server disables TCP forwarding.
+- Windows console sessions: the screen check runs less often to keep the host light.
+
 ## [0.10.14] - 2026-11-04
 ### Changed
 - Host cards now show the logos of every AI agent installed on that host (Claude Code, Codex, opencode, Hermes, Antigravity…), not only the ones running. The list is detected when the host is connected and remembered, so the logos stay after the app restarts or the host disconnects. Agents that are running right now nod and carry a green dot; installed-only ones sit still and slightly dimmed.

@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 
-VERSION = 13
+VERSION = 14
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -349,6 +349,28 @@ def cmd_rename(args):
     print("{}")
 
 
+def cmd_wport(args):
+    """wport <id>: alamat worker chat (port token) untuk sambungan stream lewat port-forward SSH."""
+    cid = args[0]
+    if not os.path.isdir(chat_dir(cid)):
+        print(jdump({"t": "gone"}))
+        return
+    if not USE_TCP:
+        raise SystemExit("stream needs the TCP worker (Windows)")
+    spawn_worker(cid)
+    for _ in range(150):
+        if _worker_ready(cid):
+            try:
+                with open(os.path.join(chat_dir(cid), "in.port"), encoding="utf-8") as f:
+                    port, tok = f.read().split()
+                print(jdump({"port": int(port), "token": tok}))
+                return
+            except (OSError, ValueError):
+                pass
+        time.sleep(0.1)
+    raise SystemExit("the chat worker did not start")
+
+
 def cmd_post(args):
     """post <id> <baris JSON>: teruskan satu perintah ke worker chat (dipakai aplikasi di Windows)."""
     cid, line = args[0], " ".join(args[1:]).strip()
@@ -457,12 +479,29 @@ def cmd_attach(args):
     if not no_stdin:
         threading.Thread(target=pump_stdin, daemon=True).start()
     path = os.path.join(d, "events.jsonl")
+    out = sys.stdout
+
+    def write(text):
+        out.write(text)
+
+    def flush():
+        try:
+            out.flush()
+        except BrokenPipeError:
+            raise ConnectionError("closed")
+    try:
+        _follow_events(path, start, prelude, write, flush, stop)
+    except (ConnectionError, BrokenPipeError, OSError):
+        return
+
+
+def _follow_events(path, start, prelude, write, flush, stop):
+    """Kirim event dari baris ke-<start> lalu ikuti terus (attach di sh, atau sambungan stream di Windows)."""
     while not os.path.exists(path) and not stop.is_set():
         time.sleep(0.05)
     with open(path, encoding="utf-8") as f:
-        out = sys.stdout
         for line in prelude:
-            out.write(line)
+            write(line)
         skipped = 0
         buf = ""
         last_data = time.time()
@@ -477,26 +516,19 @@ def cmd_attach(args):
                 if skipped < start:  # lewati yang sudah dimiliki aplikasi
                     skipped += 1
                     continue
-                out.write(chunk)
+                write(chunk)
                 last_data = time.time()
                 continue  # kumpulkan yang tersedia, flush sekali
-            try:
-                if not synced and not buf:  # riwayat awal sudah terkirim semua
-                    out.write('{"t":"synced"}\n')
-                    synced = True
-                out.flush()
-            except BrokenPipeError:
-                return
+            if not synced and not buf:  # riwayat awal sudah terkirim semua
+                write('{"t":"synced"}\n')
+                synced = True
+            flush()
             idle = time.time() - last_data
             time.sleep(0.02 if idle < 3 else 0.15)
             if idle > 20:  # detak agar aplikasi tahu sambungan masih hidup
-                try:
-                    out.write('{"t":"hb"}\n')
-                    out.flush()
-                except BrokenPipeError:
-                    return
+                write('{"t":"hb"}\n')
+                flush()
                 last_data = time.time()
-
 
 STATE_EVENTS = ("init", "model", "mode", "models", "modes", "commands", "limits", "context", "mirror_end")
 
@@ -538,6 +570,8 @@ class Worker:
             self.seq = sum(1 for _ in f)
         self.busy = False
         self.last_activity = time.time()
+        self.hlock = threading.Lock()   # perintah dari banyak sambungan: satu per satu
+        self.streams = 0                # sambungan stream yang terbuka (worker tidak berhenti selama ada)
         self.adapter = MirrorAdapter(self) if self.meta.get("mirror") else ADAPTERS[self.meta["agent"]](self)
 
     def emit(self, ev):
@@ -582,6 +616,67 @@ class Worker:
         elif c == "_quit":
             self.quit = True
 
+    def _handle_line(self, line):
+        line = line.strip()
+        if not line or line == "ping":
+            return
+        with self.hlock:
+            try:
+                self.last_activity = time.time()
+                self.handle(json.loads(line))
+            except Exception as e:  # jangan biarkan worker mati karena satu perintah
+                self.emit({"t": "error", "msg": "command failed: %s" % e})
+
+    def _stream(self, conn, first, rest):
+        self.streams += 1
+        stop = threading.Event()
+        try:
+            conn.settimeout(None)
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            for line in rest:
+                self._handle_line(line)
+
+            def pump():
+                buf = b""
+                try:
+                    while not stop.is_set():
+                        part = conn.recv(65536)
+                        if not part:
+                            break
+                        buf += part
+                        while b"\n" in buf:
+                            line, buf = buf.split(b"\n", 1)
+                            self._handle_line(line.decode("utf-8", "replace"))
+                except Exception:
+                    pass
+                stop.set()
+            threading.Thread(target=pump, daemon=True).start()
+            path = os.path.join(self.dir, "events.jsonl")
+            start, prelude = int(first.get("from") or 0), []
+            if start == 0 and int(first.get("tail") or 0) > 0:
+                start, prelude = _tail_start(path, int(first["tail"]))
+            pend = []
+
+            def write(text):
+                pend.append(text)
+
+            def flush():
+                if pend:
+                    data = "".join(pend).encode("utf-8")
+                    del pend[:]
+                    conn.sendall(data)
+            _follow_events(path, start, prelude, write, flush, stop)
+        except Exception:
+            pass
+        finally:
+            stop.set()
+            self.streams -= 1
+            self.last_activity = time.time()
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     def serve(self):
         self.quit = False
         tok = ""
@@ -615,7 +710,7 @@ class Worker:
             try:
                 conn, _ = srv.accept()
             except socket.timeout:
-                if not self.busy and time.time() - self.last_activity > IDLE_EXIT_SEC:
+                if not self.busy and not self.streams and time.time() - self.last_activity > IDLE_EXIT_SEC:
                     break
                 continue
             data = b""
@@ -628,18 +723,25 @@ class Worker:
                     data += part
             except Exception:
                 pass
-            conn.close()
             lines = data.decode("utf-8", "replace").splitlines()
             if tok:  # TCP: baris pertama harus token dari in.port (hanya pengguna ini yang bisa membacanya)
                 if not lines or lines[0].strip() != tok:
+                    conn.close()
                     continue
                 lines = lines[1:]
+            first = {}
+            try:
+                first = json.loads(lines[0]) if lines else {}
+            except Exception:
+                pass
+            if first.get("c") == "_stream":
+                # Sambungan dua arah yang tetap terbuka (Windows, lewat port-forward SSH): event keluar,
+                # perintah masuk — tanpa shell di tengah yang menahan keluaran.
+                threading.Thread(target=self._stream, args=(conn, first, lines[1:]), daemon=True).start()
+                continue
+            conn.close()
             for line in lines:
-                try:
-                    self.last_activity = time.time()
-                    self.handle(json.loads(line))
-                except Exception as e:  # jangan biarkan worker mati karena satu perintah
-                    self.emit({"t": "error", "msg": "command failed: %s" % e})
+                self._handle_line(line)
         self.adapter.close()
         if self.meta.get("status") == "working":
             self.save_meta(status="idle")
@@ -2863,7 +2965,8 @@ class MirrorAdapter:
                     continue
                 st = self._status()
                 screen = ""
-                if self._interactive() and (not has_transcript or st in ("working", "blocked", "") or self.perm):
+                if self._interactive() and (not has_transcript or st in ("working", "blocked", "") or self.perm) \
+                        and (self.mi.get("where") != "wincon" or tick % 4 == 0 or self.perm):  # konsol Windows: pembantu terpisah, lebih jarang
                     screen = _screen(self.mi, 40)
                 blocked = st == "blocked" or (self._interactive() and st != "idle" and bool(BLOCKED_RE.search("\n".join(screen.splitlines()[-14:]))))
                 if not has_transcript and self.agent not in ("claude", "codex") and screen and screen != self.screen:
@@ -3621,7 +3724,7 @@ COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
     "hermes-setup": cmd_hermes_setup, "wrap": cmd_wrap, "shell-setup": cmd_shell_setup,
-    "post": cmd_post, "isdir": cmd_isdir, "_wincon": cmd_wincon,
+    "post": cmd_post, "isdir": cmd_isdir, "_wincon": cmd_wincon, "wport": cmd_wport,
 }
 
 
