@@ -22,18 +22,22 @@ import threading
 import time
 import uuid
 
-VERSION = 11
+VERSION = 12
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
 MAX_OUT = 6000                    # batas output tool yang dikirim ke HP
 
 # Folder bin tambahan yang sering dipakai pemasang agent (tidak selalu ada di PATH sesi non-interaktif).
+WIN = sys.platform == "win32"
 EXTRA_PATHS = [
     "~/.local/bin", "~/.npm-global/bin", "~/.bun/bin", "~/.cargo/bin", "~/.opencode/bin",
     "~/.local/opt/agents/node/bin", "~/.local/opt/agents/npm/bin", "~/.local/opt/agents/uv-bin",
     "~/go/bin", "/usr/local/bin",
-]
+] + ([os.path.join(os.environ.get("APPDATA", ""), "npm")] if WIN and os.environ.get("APPDATA") else [])
+# Windows: soket Unix tidak tersedia di Python → worker mendengar di 127.0.0.1 dengan token acak.
+USE_TCP = WIN or not hasattr(socket, "AF_UNIX") or os.environ.get("TERMX_TCP") == "1"
+NO_WINDOW = 0x08000000 if WIN else 0  # CREATE_NO_WINDOW: proses agent tanpa jendela konsol
 
 
 def env_path():
@@ -105,7 +109,8 @@ def _ctx_remember(model, window):
 
 def version_of(cmd):
     try:
-        out = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=15)
+        out = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL,
+                             encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
         line = (out.stdout or out.stderr).strip().splitlines()
         return line[0][:80] if line else ""
     except Exception:
@@ -200,7 +205,7 @@ def cmd_detect(_args):
 # ---------------------------------------------------------------- penyimpanan chat
 
 def chat_dir(cid):
-    if not cid or "/" in cid or cid.startswith("."):
+    if not cid or "/" in cid or "\\" in cid or ":" in cid or cid.startswith("."):
         raise SystemExit("invalid chat id")
     return os.path.join(ROOT, cid)
 
@@ -221,14 +226,53 @@ def write_meta(cid, meta):
     os.replace(tmp, p)
 
 
-def worker_alive(cid):
+def _pid_alive(pid):
+    if WIN:  # os.kill(pid, 0) di Windows justru MENGHENTIKAN proses: tanya status lewat API Windows
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+        k.CloseHandle(h)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
     try:
-        with open(os.path.join(chat_dir(cid), "worker.pid")) as f:
-            pid = int(f.read().strip())
         os.kill(pid, 0)
         return True
-    except Exception:
+    except OSError:
         return False
+
+
+def _worker_pid(cid):
+    try:
+        with open(os.path.join(chat_dir(cid), "worker.pid")) as f:
+            return int(f.read().strip())
+    except Exception:
+        return 0
+
+
+def worker_alive(cid):
+    pid = _worker_pid(cid)
+    return bool(pid) and _pid_alive(pid)
+
+
+def _worker_ready(cid):
+    return os.path.exists(os.path.join(chat_dir(cid), "in.port" if USE_TCP else "in.sock"))
+
+
+def _worker_connect(cid):
+    """Sambungan ke worker chat: soket Unix, atau TCP lokal + token (Windows)."""
+    d = chat_dir(cid)
+    if USE_TCP:
+        with open(os.path.join(d, "in.port"), encoding="utf-8") as f:
+            port, tok = f.read().split()
+        s = socket.create_connection(("127.0.0.1", int(port)), timeout=5)
+        s.sendall((tok + "\n").encode())
+        return s
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(os.path.join(d, "in.sock"))
+    return s
 
 
 def cmd_list(_args):
@@ -277,7 +321,7 @@ def cmd_rm(args):
             break
         time.sleep(0.1)
     if worker_alive(cid):  # masih bandel: paksa berhenti
-        stop_worker(cid, signal.SIGKILL)
+        stop_worker(cid, force=True)
         time.sleep(0.2)
     if owned and shutil.which("tmux"):  # sesi tmux yang dibuat TermX untuk chat ini
         subprocess.run(["tmux", "kill-session", "-t", "=" + owned], capture_output=True)
@@ -304,10 +348,48 @@ def cmd_rename(args):
     print("{}")
 
 
-def stop_worker(cid, sig=signal.SIGTERM):
+def cmd_post(args):
+    """post <id> <baris JSON>: teruskan satu perintah ke worker chat (dipakai aplikasi di Windows)."""
+    cid, line = args[0], " ".join(args[1:]).strip()
+    if not os.path.isdir(chat_dir(cid)):
+        raise SystemExit("conversation not found")
+    err = None
+    for _ in range(3):
+        try:
+            spawn_worker(cid)
+            s = _worker_connect(cid)
+            s.sendall((line + "\n").encode())
+            s.close()
+            print("{}")
+            return
+        except Exception as e:
+            err = e
+            time.sleep(0.3)
+    raise SystemExit("could not reach the conversation: %s" % err)
+
+
+def cmd_isdir(args):
+    print(jdump({"ok": os.path.isdir(os.path.expanduser(args[0] if args else "~"))}))
+
+
+def stop_worker(cid, force=False):
+    pid = _worker_pid(cid)
+    if not pid:
+        return
+    if WIN:
+        if not force:
+            try:  # berhenti dengan rapi: worker menutup agent-nya sendiri
+                s = _worker_connect(cid)
+                s.sendall(b'{"c":"_quit"}\n')
+                s.close()
+                return
+            except Exception:
+                pass
+        if _pid_alive(pid):
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
+        return
     try:
-        with open(os.path.join(chat_dir(cid), "worker.pid")) as f:
-            os.killpg(int(f.read().strip()), sig)
+        os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
     except Exception:
         pass
 
@@ -316,12 +398,19 @@ def spawn_worker(cid):
     if worker_alive(cid):
         return
     log = open(os.path.join(chat_dir(cid), "worker.log"), "ab")
-    subprocess.Popen(
-        [sys.executable, os.path.abspath(__file__), "_worker", cid],
-        stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True,
-    )
+    argv = [sys.executable, os.path.abspath(__file__), "_worker", cid]
+    if WIN:
+        # grup proses sendiri, tanpa jendela, dan bila diizinkan lepas dari job sesi SSH agar tetap hidup
+        flags = NO_WINDOW | 0x00000200  # CREATE_NEW_PROCESS_GROUP
+        try:
+            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True,
+                             creationflags=flags | 0x01000000)  # CREATE_BREAKAWAY_FROM_JOB
+        except OSError:
+            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, creationflags=flags)
+    else:
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True)
     for _ in range(100):  # tunggu soket siap (maks ~5 detik)
-        if os.path.exists(os.path.join(chat_dir(cid), "in.sock")) and worker_alive(cid):
+        if _worker_ready(cid) and worker_alive(cid):
             return
         time.sleep(0.05)
 
@@ -332,6 +421,8 @@ def cmd_attach(args):
     """Kirim event mulai nomor <dari>, lalu ikuti terus. Baris JSON di stdin diteruskan ke worker."""
     # attach <id> <dari> [giliran]: bila <dari> 0 dan [giliran] > 0, hanya N prompt terakhir yang dikirim
     # (plus event status terakhir sebelumnya), didahului {"t":"older","turns":k} bila ada riwayat yang dilewati.
+    no_stdin = "--no-stdin" in args  # Windows: perintah dikirim terpisah lewat `post`
+    args = [a for a in args if a != "--no-stdin"]
     cid, start = args[0], int(args[1]) if len(args) > 1 else 0
     tail = int(args[2]) if len(args) > 2 and args[2].isdigit() else 0
     d = chat_dir(cid)
@@ -354,8 +445,7 @@ def cmd_attach(args):
             for attempt in range(2):
                 try:
                     spawn_worker(cid)
-                    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    s.connect(os.path.join(d, "in.sock"))
+                    s = _worker_connect(cid)
                     s.sendall((line + "\n").encode())
                     s.close()
                     break
@@ -363,7 +453,8 @@ def cmd_attach(args):
                     time.sleep(0.2)
         stop.set()
 
-    threading.Thread(target=pump_stdin, daemon=True).start()
+    if not no_stdin:
+        threading.Thread(target=pump_stdin, daemon=True).start()
     path = os.path.join(d, "events.jsonl")
     while not os.path.exists(path) and not stop.is_set():
         time.sleep(0.05)
@@ -487,21 +578,39 @@ class Worker:
             self.adapter.set_mode(cmd.get("mode") or "")
         elif c == "stop":
             self.adapter.interrupt()
+        elif c == "_quit":
+            self.quit = True
 
     def serve(self):
-        sp = os.path.join(self.dir, "in.sock")
-        try:
-            os.unlink(sp)
-        except FileNotFoundError:
-            pass
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(sp)
-        os.chmod(sp, 0o600)
+        self.quit = False
+        tok = ""
+        if USE_TCP:
+            sp = os.path.join(self.dir, "in.port")
+            try:  # alamat worker lama (dihentikan paksa): hapus sebelum pid baru ditulis
+                os.unlink(sp)
+            except OSError:
+                pass
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.bind(("127.0.0.1", 0))
+            tok = uuid.uuid4().hex
+        else:
+            sp = os.path.join(self.dir, "in.sock")
+            try:
+                os.unlink(sp)
+            except FileNotFoundError:
+                pass
+            srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            srv.bind(sp)
+            os.chmod(sp, 0o600)
         srv.listen(8)
         srv.settimeout(1.0)
         with open(os.path.join(self.dir, "worker.pid"), "w") as f:
             f.write(str(os.getpid()))
-        while True:
+        if USE_TCP:  # alamat ditulis terakhir: tandanya worker siap
+            with open(sp + ".tmp", "w", encoding="utf-8") as f:
+                f.write("%d %s" % (srv.getsockname()[1], tok))
+            os.replace(sp + ".tmp", sp)
+        while not self.quit:
             try:
                 conn, _ = srv.accept()
             except socket.timeout:
@@ -519,7 +628,12 @@ class Worker:
             except Exception:
                 pass
             conn.close()
-            for line in data.decode("utf-8", "replace").splitlines():
+            lines = data.decode("utf-8", "replace").splitlines()
+            if tok:  # TCP: baris pertama harus token dari in.port (hanya pengguna ini yang bisa membacanya)
+                if not lines or lines[0].strip() != tok:
+                    continue
+                lines = lines[1:]
+            for line in lines:
                 try:
                     self.last_activity = time.time()
                     self.handle(json.loads(line))
@@ -536,7 +650,15 @@ class Worker:
 
 def cmd_worker(args):
     w = Worker(args[0])
-    signal.signal(signal.SIGTERM, lambda *_: (w.adapter.close(), os._exit(0)))
+    def bye(*_):
+        w.adapter.close()
+        for n in ("in.port", "in.sock"):
+            try:
+                os.unlink(os.path.join(w.dir, n))
+            except OSError:
+                pass
+        os._exit(0)
+    signal.signal(signal.SIGTERM, bye)
     w.serve()
 
 
@@ -605,7 +727,8 @@ class ClaudeAdapter:
         if m.get("session"):
             cmd += ["--resume", m["session"]]
         self.proc = subprocess.Popen(cmd, cwd=m["cwd"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE, text=True, bufsize=1)
+                                     stderr=subprocess.PIPE, text=True, bufsize=1, encoding="utf-8", errors="replace",
+                                     creationflags=NO_WINDOW)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
         threading.Thread(target=self._read_err, args=(self.proc,), daemon=True).start()
         self._write({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize"}})
@@ -883,7 +1006,8 @@ class StreamAdapter:
     # proses
     def spawn(self, cmd, cwd):
         self.proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE, text=True, bufsize=1)
+                                     stderr=subprocess.PIPE, text=True, bufsize=1, encoding="utf-8", errors="replace",
+                                     creationflags=NO_WINDOW)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
         threading.Thread(target=self._read_err, args=(self.proc,), daemon=True).start()
 
@@ -1068,7 +1192,10 @@ class CodexAdapter(StreamAdapter):
 
     def interrupt(self):
         if self.alive():
-            self.proc.send_signal(signal.SIGINT)
+            if WIN:
+                self.proc.terminate()  # Windows tidak punya SIGINT untuk proses lain
+            else:
+                self.proc.send_signal(signal.SIGINT)
 
 
 # ---------------------------------------------------------------- adapter: ACP (opencode, Hermes)
@@ -1431,6 +1558,8 @@ def _read(path, binary=False):
 
 def _procs():
     """pid -> {ppid, argv, start(epoch detik), tty}; hanya proses milik user ini."""
+    if not os.path.isdir("/proc"):
+        return {}  # Windows / macOS: pemindaian sesi yang berjalan belum didukung
     uid = os.getuid()
     btime = 0
     for line in (_read("/proc/stat") or "").splitlines():
@@ -2779,7 +2908,8 @@ def cmd_shell_setup(args):
 
 def _run_text(cmd, timeout=15):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                           encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
         return (r.stdout or "") + (r.stderr or "")
     except Exception:
         return ""
@@ -3195,10 +3325,27 @@ COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
     "hermes-setup": cmd_hermes_setup, "wrap": cmd_wrap, "shell-setup": cmd_shell_setup,
+    "post": cmd_post, "isdir": cmd_isdir,
 }
 
 
 def main():
+    if WIN:  # konsol Windows memakai code page lokal; aplikasi membaca UTF-8
+        for st in (sys.stdin, sys.stdout, sys.stderr):
+            try:
+                st.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+    if len(sys.argv) > 2 and sys.argv[1] == "--b64":
+        # Argumen dari aplikasi sebagai JSON base64url: aman di PowerShell, cmd.exe, maupun sh.
+        import base64
+        raw = sys.argv[2] + "=" * (-len(sys.argv[2]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(raw).decode("utf-8"))
+        if isinstance(payload, dict):  # {"a": argumen, "i": isi stdin}
+            import io
+            sys.stdin = io.StringIO(payload.get("i") or "")
+            payload = payload.get("a") or []
+        sys.argv = [sys.argv[0]] + [str(a) for a in payload]
     os.makedirs(ROOT, mode=0o700, exist_ok=True)
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
         if len(sys.argv) > 1 and sys.argv[1] == "version":

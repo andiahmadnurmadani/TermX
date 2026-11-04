@@ -66,6 +66,11 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     private fun conn(hostId: String): SshConnection = sessions.connectionFor(hostId)
 
     private val installLocks = ConcurrentHashMap<String, Any>()
+    private val remotes = ConcurrentHashMap<String, RemoteHost>()
+    private val posixHost = RemoteHost(false, PY, REMOTE)
+
+    /** Cara memanggil agentd di host ini (diketahui setelah pemasangan pertama). */
+    private fun rh(hostId: String): RemoteHost = remotes[hostId] ?: posixHost
 
     // detect/list/running dipanggil bersamaan: hanya satu yang memasang, sisanya menunggu hasilnya.
     private fun ensureInstalled(c: SshConnection, hostId: String) {
@@ -77,6 +82,23 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     }
 
     private fun installNow(c: SshConnection, hostId: String) {
+        val host = probe(c)
+        remotes[hostId] = host
+        if (host.windows) installWindows(c, host) else installPosix(c)
+        installed[hostId] = true
+    }
+
+    /** Linux/macOS → sh seperti biasa; Windows → python yang ada (python3 / python / py -3) dan path absolut. */
+    private fun probe(c: SshConnection): RemoteHost {
+        for (py in listOf("python3", "python", "py -3")) {
+            val r = runCatching { c.exec("$py -c \"${RemoteCmd.PROBE}\"", timeoutSec = 15) }.getOrNull() ?: continue
+            val (plat, home) = RemoteCmd.parseProbe(r.stdout) ?: continue
+            return if (plat == "win32") RemoteHost(true, py, home.trimEnd('\\', '/') + "\\.termx\\agentd.py") else posixHost
+        }
+        throw SshException(S.get(R.string.agent_no_python), fatal = true)
+    }
+
+    private fun installPosix(c: SshConnection) {
         val v = c.exec("$PY $REMOTE version 2>/dev/null; command -v python3 >/dev/null 2>&1 || echo NOPY", timeoutSec = 15)
         if (v.stdout.contains("NOPY")) throw SshException(S.get(R.string.agent_no_python), fatal = true)
         if (v.stdout.trim().toIntOrNull() != scriptVersion) {
@@ -88,14 +110,38 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
             )
             if (!r.stdout.contains("OK")) throw SshException(S.get(R.string.agent_install_failed, r.stderr.take(200)))
         }
-        installed[hostId] = true
+    }
+
+    private fun installWindows(c: SshConnection, host: RemoteHost) {
+        val v = c.exec("${host.py} \"${host.script}\" version", timeoutSec = 15)
+        if (v.stdout.trim().toIntOrNull() == scriptVersion) return
+        // SFTP dulu (tidak bergantung pada cara PowerShell/cmd meneruskan stdin), lalu ganti berkasnya lewat python.
+        val viaSftp = runCatching {
+            val sftp = c.sftp()
+            runCatching { sftp.mkdirs(".termx") }
+            val rf = sftp.open(".termx/agentd.py.tmp", java.util.EnumSet.of(
+                net.schmizz.sshj.sftp.OpenMode.WRITE, net.schmizz.sshj.sftp.OpenMode.CREAT, net.schmizz.sshj.sftp.OpenMode.TRUNC))
+            try {
+                rf.RemoteFileOutputStream(0, 16).use { it.write(script) }
+            } finally {
+                rf.close()
+            }
+            c.exec("${host.py} -c \"${RemoteCmd.WIN_REPLACE}\"", timeoutSec = 20).stdout.contains("OK")
+        }.getOrDefault(false)
+        if (viaSftp) return
+        val r = c.exec("${host.py} -c \"${RemoteCmd.WIN_STDIN_INSTALL}\"", timeoutSec = 30, stdin = String(script))
+        if (!r.stdout.contains("OK")) throw SshException(S.get(R.string.agent_install_failed, r.stderr.take(200)))
     }
 
     private fun run(hostId: String, args: String, timeoutSec: Long = 30, stdin: String? = null): JsonObject {
         val c = conn(hostId)
         ensureInstalled(c, hostId)
-        val r = if (stdin != null) c.exec("$PY $REMOTE $args", timeoutSec = timeoutSec, stdin = stdin)
-        else c.exec("$PY $REMOTE $args", timeoutSec = timeoutSec)
+        val h = rh(hostId)
+        val r = when {
+            h.windows -> c.exec(h.line(args, stdin), timeoutSec = timeoutSec)  // stdin ikut di dalam argumen
+            stdin != null -> c.exec(h.line(args), timeoutSec = timeoutSec, stdin = stdin)
+            else -> c.exec(h.line(args), timeoutSec = timeoutSec)
+        }
         val line = r.stdout.lineSequence().lastOrNull { it.trim().startsWith("{") }
             ?: throw SshException(r.stderr.lineSequence().lastOrNull { it.isNotBlank() }?.take(300) ?: S.get(R.string.agent_bad_reply))
         return json.parseToJsonElement(line).jsonObject
@@ -187,6 +233,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     /** Pilih window & pane tmux tujuan sebelum attach (agar langsung tampil pane agent-nya). */
     suspend fun selectTmuxPane(hostId: String, r: RunningAgent) = withContext(Dispatchers.IO) {
         val target = shq("=${r.tmuxSession}:${r.tmuxWindow}.${r.tmuxPane}")
+        if (rh(hostId).windows) return@withContext
         runCatching {
             conn(hostId).exec("tmux select-window -t $target 2>/dev/null; tmux select-pane -t $target 2>/dev/null; true", timeoutSec = 10)
         }
@@ -318,6 +365,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
     /** Cek cepat folder ada di server (untuk validasi form chat baru). */
     suspend fun folderExists(hostId: String, path: String): Boolean = withContext(Dispatchers.IO) {
+        if (rh(hostId).windows) return@withContext run(hostId, "isdir ${shq(path)}", timeoutSec = 15).bool("ok") == true
         val p = if (path.startsWith("~")) "\$HOME" + shq(path.removePrefix("~")) else shq(path)
         conn(hostId).exec("test -d $p && echo YES", timeoutSec = 10).stdout.contains("YES")
     }
@@ -389,6 +437,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         @Volatile private var out: OutputStream? = null
         @Volatile private var session: Session? = null
         private val queue = ArrayList<String>()
+        private val postLock = Any()
         private var lastNotified = -1
         /** Berapa prompt terakhir yang dimuat saat membuka chat (0 = semua). */
         @Volatile private var tailTurns = INITIAL_TURNS
@@ -437,7 +486,9 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                         resetPending = false
                     }
                     val from = synchronized(reducer) { reducer.lastSeq + 1 }
-                    val cmd = s.exec("$PY $REMOTE attach ${shq(chatId)} $from" + if (from == 0 && tailTurns > 0) " $tailTurns" else "")
+                    val h = rh(hostId)
+                    val cmd = s.exec(h.line("attach ${shq(chatId)} $from" + (if (from == 0 && tailTurns > 0) " $tailTurns" else "") +
+                        if (h.windows) " --no-stdin" else ""))
                     val o = cmd.outputStream
                     out = o
                     synchronized(queue) {
@@ -504,6 +555,18 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
         private fun write(o: JsonObject) {
             val line = o.toString()
+            if (rh(hostId).windows) {
+                // Windows: stdin lewat PowerShell/cmd tidak bisa diandalkan, kirim tiap perintah sendiri-sendiri.
+                scope.launch {
+                    synchronized(postLock) {
+                        runCatching { run(hostId, "post ${shq(chatId)} ${shq(line)}", timeoutSec = 30) }.onFailure { e ->
+                            synchronized(reducer) { reducer.apply(buildJsonObject { put("t", "error"); put("msg", e.message ?: "send failed") }) }
+                            mark()
+                        }
+                    }
+                }
+                return
+            }
             scope.launch {
                 val stream = out
                 val ok = stream != null && runCatching {

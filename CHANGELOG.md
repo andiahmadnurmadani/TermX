@@ -3,6 +3,19 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.11] - 2026-11-04
+
+### Added
+- AI agents on Windows hosts. TermX detects Windows (PowerShell or cmd as the SSH shell), finds Python (`python3`, `python` or `py -3`), installs its helper over SFTP, and runs every command in a form that works in any Windows shell.
+- On Windows, chat workers talk over a local loopback port protected by a random token, because Python has no Unix sockets there. Messages from the app are sent as separate commands.
+
+### Fixed
+- Installing the agent helper no longer fails with "The token '&&' is not a valid statement separator" on Windows hosts.
+- Checking whether a chat worker is running no longer stops it on Windows.
+
+### Known limitations
+- On Windows, sessions started outside TermX are not listed under running agents yet, and tmux, herdr and terminal mirroring aren't available.
+
 ## [0.10.10] - 2026-11-04
 
 ### Added
