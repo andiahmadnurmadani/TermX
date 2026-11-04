@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 8
+VERSION = 9
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -1975,18 +1975,56 @@ def cmd_mirror(args):
         raise SystemExit("this session is no longer running")
     sid, tr = transcript_of(f["agent"], f["pid"], f.get("session") or "", f["cwd"], f.get("started") or 0)
     key = (f["pid"], (f.get("herdr") or {}).get("pane", ""))
-    old = []
+    # Satu proses / satu sesi = satu chat. Dulu chat hanya dipakai ulang bila id sesinya sama persis,
+    # sehingga setelah /compact, /clear, atau claude dibuka ulang dengan --resume, membuka sesi ini lagi
+    # membuat chat baru sementara yang lama tetap tampil (chat ganda).
+    cands = []
     if os.path.isdir(ROOT):
         for cid in os.listdir(ROOT):
             m = read_meta(cid) or {}
             mi = m.get("mirror") or {}
-            if mi and not m.get("superseded") and (mi.get("pid") or 0, mi.get("herdr_pane") or "") == key and m.get("session", "") == sid:
-                if mi.get("full") or mi.get("owned"):
-                    spawn_worker(cid)
-                    print(jdump({"id": cid}))
-                    return
-                old.append(cid)   # impor lama (hanya bagian akhir): diganti impor penuh
+            if not mi or m.get("superseded") or m.get("agent") != f["agent"]:
+                continue
+            same_proc = (mi.get("pid") or 0, mi.get("herdr_pane") or "") == key
+            same_sess = bool(sid) and m.get("session", "") == sid
+            if same_proc or same_sess:
+                cands.append((bool(mi.get("full") or mi.get("owned")), same_proc and same_sess, m.get("updated") or 0, cid, m))
+    cands.sort(reverse=True)
+    old = [c[3] for c in cands]
     t = f.get("tmux") or {}
+    def _stop_wait(c):
+        stop_worker(c)
+        for _ in range(30):
+            if not worker_alive(c):
+                break
+            time.sleep(0.1)
+
+    if cands and cands[0][0]:
+        keep, m = cands[0][3], cands[0][4]
+        mi = dict(m.get("mirror") or {})
+        if (mi.get("pid") or 0, mi.get("herdr_pane") or "") != key:
+            # proses baru untuk sesi yang sama (mis. claude --resume): ikuti proses barunya
+            _stop_wait(keep)
+            m = read_meta(keep) or m
+            mi = dict(m.get("mirror") or {})
+            mi.update(where=f["where"], pid=f["pid"], herdr_pane=(f.get("herdr") or {}).get("pane", ""),
+                      tmux="=%s:%s.%s" % (t["session"], t["window"], t["pane"]) if t else "", place=_place(f))
+            if herdr_bin:
+                mi["herdr_bin"] = herdr_bin
+            if tr and tr != mi.get("transcript") and m.get("session", "") != sid:
+                mi.update(transcript=tr, offset=0)
+                m["session"] = sid
+            m["mirror"] = mi
+            write_meta(keep, m)
+        for o in old[1:]:  # duplikat dari versi sebelumnya: sembunyikan, arahkan ke chat yang dipakai
+            _stop_wait(o)
+            om = read_meta(o)
+            if om:
+                om["superseded"] = keep
+                write_meta(o, om)
+        spawn_worker(keep)
+        print(jdump({"id": keep}))
+        return
     mi = {"where": f["where"], "pid": f["pid"], "herdr_pane": (f.get("herdr") or {}).get("pane", ""),
           "herdr_bin": herdr_bin or "", "tmux": "=%s:%s.%s" % (t["session"], t["window"], t["pane"]) if t else "",
           "place": _place(f), "transcript": tr, "offset": 0, "full": True}

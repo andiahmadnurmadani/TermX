@@ -3,6 +3,11 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.8] - 2026-11-04
+
+### Fixed
+- Followed terminal sessions no longer turn into several chats. Reopening a running Claude session (after `/compact`, `/clear`, or a `claude --resume` restart) now reuses its chat instead of creating a new one. Duplicate chats made by earlier versions are hidden the next time the session is opened.
+
 ## [0.10.7] - 2026-11-04
 
 ### Added
