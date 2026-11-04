@@ -3,6 +3,12 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.13] - 2026-11-04
+### Added
+- Windows hosts: running Claude Code (and Codex) sessions started in a Windows terminal (cmd, PowerShell, Windows Terminal) now show up under running agents. agentd lists processes with the Windows API (no `/proc`), recognises `claude.exe` and npm installs (`node …\@anthropic-ai\claude-code\cli.js`), and reads session id, folder and status from `~/.claude/sessions`.
+- Messages from TermX are typed into that Windows console window (AttachConsole + WriteConsoleInput), and permission prompts are read from its screen.
+- macOS: running Claude Code sessions are found through `~/.claude/sessions`.
+
 ## [0.10.12] - 2026-11-04
 ### Added
 - AI agents: when a host has no Python 3, the agent screen now offers **Install Python**. Windows installs Python 3.12 for the current user only (winget, falling back to the official python.org installer, no admin needed); Linux uses the server's package manager via sudo (apt, dnf, yum, zypper, apk, pacman); macOS uses Homebrew when present.

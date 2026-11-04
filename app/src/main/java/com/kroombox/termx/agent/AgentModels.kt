@@ -50,7 +50,7 @@ data class ChatMeta(
 
 /** Sesi luar yang diikuti chat: pesan diketik ke pane tmux/herdr-nya. */
 data class MirrorInfo(
-    /** "tmux", "herdr", atau "other". */
+    /** "tmux", "herdr", "pty", "wincon" (konsol Windows), "termx", atau "other". */
     val where: String,
     /** Label tempat, mis. "herdr w4:p1" atau "tmux main:0.1". */
     val place: String,
@@ -65,7 +65,7 @@ data class RunningAgent(
     val pid: Long,
     val cwd: String,
     val startedSec: Long,
-    /** "tmux", "herdr", atau "other". */
+    /** "tmux", "herdr", "pty", "wincon" (konsol Windows), "termx", atau "other". */
     val where: String,
     val tty: String,
     val session: String,

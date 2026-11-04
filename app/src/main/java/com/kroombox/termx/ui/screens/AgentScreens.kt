@@ -956,12 +956,14 @@ internal fun RunningRow(
         "tmux" -> "tmux"
         "herdr" -> "herdr"
         "termx" -> "TermX"
+        "wincon" -> "Windows"
         else -> null   // terminal lain (pts/…): tidak ditampilkan
     }
     val placeIcon = when (r.where) {
         "tmux" -> Icons.Rounded.Terminal
         "herdr" -> Icons.Rounded.Dashboard
         "termx" -> Icons.Rounded.PhoneAndroid
+        "wincon" -> Icons.Rounded.Terminal
         else -> Icons.Rounded.Folder
     }
     val status = r.herdrStatus.ifBlank { r.status }

@@ -10,6 +10,7 @@ aplikasi menyambung lewat `agentd.py attach <id> <dari>` dan hanya menerima yang
 Login / API key tiap agent tidak pernah disentuh: agent memakai konfigurasi miliknya sendiri di server.
 """
 import json
+import types
 import re
 import shlex
 import os
@@ -22,7 +23,7 @@ import threading
 import time
 import uuid
 
-VERSION = 12
+VERSION = 13
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -1543,7 +1544,16 @@ ADAPTERS = {"claude": ClaudeAdapter, "codex": CodexAdapter, "opencode": AcpAdapt
 # ------------------------------------------------------------------ sesi agent yang sedang berjalan
 # Deteksi agent yang dijalankan di luar TermX (di tmux, herdr, atau terminal lain) milik user ini.
 
-INTERPRETERS = ("node", "bun", "deno", "python", "python3")
+INTERPRETERS = ("node", "bun", "deno", "python", "python3", "pythonw")
+PKG_AGENT = {"claude-code": "claude", "codex": "codex", "opencode-ai": "opencode"}
+
+
+def _base(path):
+    """Nama program tanpa folder dan, di Windows, tanpa .exe/.cmd (C:\\…\\claude.exe → claude)."""
+    b = re.split(r"[\\/]", path)[-1]
+    if WIN or re.search(r"\.(exe|cmd|bat)$", b, re.I):
+        b = re.sub(r"\.(exe|cmd|bat)$", "", b, flags=re.I).lower()
+    return b
 SKIP_ARGS = {"mcp", "--version", "-v", "--help", "acp", "app-server", "proto", "serve", "server", "completion"}
 
 
@@ -1558,8 +1568,13 @@ def _read(path, binary=False):
 
 def _procs():
     """pid -> {ppid, argv, start(epoch detik), tty}; hanya proses milik user ini."""
+    if WIN:
+        try:
+            return _win_procs()
+        except Exception:
+            return {}
     if not os.path.isdir("/proc"):
-        return {}  # Windows / macOS: pemindaian sesi yang berjalan belum didukung
+        return {}  # macOS: sesi Claude Code tetap ditemukan lewat ~/.claude/sessions (lihat _running)
     uid = os.getuid()
     btime = 0
     for line in (_read("/proc/stat") or "").splitlines():
@@ -1590,14 +1605,18 @@ def _agent_of(argv):
     if not argv:
         return None
     names = {b: a["id"] for a in CATALOG for b in a["bins"]}
-    b0 = os.path.basename(argv[0])
+    names.setdefault("codex", "codex")
+    b0 = _base(argv[0])
     cand = None
     if b0 in names:
         cand, rest = names[b0], argv[1:]
     elif b0 in INTERPRETERS or b0.startswith("python3."):
         args = [a for a in argv[1:] if not a.startswith("-")]
         if args:
-            b = re.sub(r"\.(c?js|mjs|py)$", "", os.path.basename(args[0]))
+            b = re.sub(r"\.(c?js|mjs|py)$", "", _base(args[0]))
+            if b not in names:  # npm di Windows: node …\node_modules\@anthropic-ai\claude-code\cli.js
+                parts = [x.lower() for x in re.split(r"[\\/]", args[0])]
+                b = next((PKG_AGENT[x] for x in reversed(parts) if x in PKG_AGENT), b)
             if b in names:
                 cand, rest = names[b], argv[argv.index(args[0]) + 1:]
     if cand is None:
@@ -1657,6 +1676,27 @@ def _claude_session(pid):
             return json.load(f)
     except Exception:
         return {}
+
+
+def _claude_sessions():
+    """(pid, isi) sesi interaktif Claude Code yang prosesnya masih hidup."""
+    d = os.path.expanduser("~/.claude/sessions")
+    out = []
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+    for n in names:
+        if not n.endswith(".json") or not n[:-5].isdigit():
+            continue
+        pid = int(n[:-5])
+        info = _claude_session(pid)
+        if info.get("kind", "interactive") != "interactive" or not _pid_alive(pid):
+            continue
+        if not WIN and os.path.isdir("/proc"):
+            continue  # Linux: /proc sudah memberi gambaran lengkap (termasuk sesi milik TermX)
+        out.append((pid, info))
+    return out
 
 
 def _claude_transcript(sid):
@@ -1771,15 +1811,19 @@ def _running():
             continue
         if where == "other" and pid in panes:
             where, info = "tmux", panes[pid]
-        try:
-            cwd = os.readlink("/proc/%d/cwd" % pid)
-        except OSError:
-            cwd = ""
-        try:
-            tty = os.readlink("/proc/%d/fd/0" % pid)
-            tty = tty if tty.startswith("/dev/pts") or tty.startswith("/dev/tty") else ""
-        except OSError:
-            tty = ""
+        if WIN and where == "other":
+            where = "wincon"   # jendela konsol Windows (cmd, PowerShell, Windows Terminal): diketik lewat API konsol
+        cwd, tty = "", ""
+        if not WIN:
+            try:
+                cwd = os.readlink("/proc/%d/cwd" % pid)
+            except OSError:
+                cwd = ""
+            try:
+                tty = os.readlink("/proc/%d/fd/0" % pid)
+                tty = tty if tty.startswith("/dev/pts") or tty.startswith("/dev/tty") else ""
+            except OSError:
+                tty = ""
         found.append({"agent": agent, "pid": pid, "cwd": cwd, "started": p["start"], "where": where, "owner": owner,
                       "tty": tty.replace("/dev/", ""), "session": _session_arg(p["argv"]), **(
                           {"tmux": info, "title": info.get("title", "")} if where == "tmux" else
@@ -1800,10 +1844,21 @@ def _running():
                     "herdr": {"pane": h.get("pane_id") or "", "workspace": h.get("workspace_id") or "",
                               "status": h.get("agent_status") or "", "focused": bool(h.get("focused"))}})
     out.extend(hproc)
+    # Claude Code mencatat tiap sesi interaktif di ~/.claude/sessions/<pid>.json: andalan di macOS dan
+    # cadangan di Windows bila baris perintah prosesnya tidak terbaca.
+    have = {f["pid"] for f in out if f.get("pid")}
+    for pid, info in _claude_sessions():
+        if pid in have or pid == me or (pid in procs and _agent_of(procs[pid]["argv"])):
+            continue
+        out.append({"agent": "claude", "pid": pid, "cwd": info.get("cwd") or "",
+                    "started": int((info.get("startedAt") or 0) / 1000), "where": "wincon" if WIN else "other",
+                    "tty": "", "session": info.get("sessionId") or ""})
     for f in out:  # Claude Code: id sesi, nama & status dari berkas sesinya
         if f["agent"] == "claude" and f["pid"]:
             info = _claude_session(f["pid"])
             f["session"] = info.get("sessionId") or f["session"]
+            if not f.get("cwd"):
+                f["cwd"] = info.get("cwd") or ""
             if not f.get("title"):
                 f["title"] = info.get("name") or ""
             if info.get("status") and not (f.get("herdr") or {}).get("status"):
@@ -2009,9 +2064,236 @@ class TranscriptConverter:
         return []
 
 
+
+# ------------------------------------------------------------------ Windows: daftar proses & konsol
+# Tanpa /proc: proses dibaca lewat Toolhelp32 + NtQueryInformationProcess (baris perintah), dan pesan
+# diketik ke jendela konsol agent dengan AttachConsole + WriteConsoleInputW dari proses pembantu terpisah
+# (FreeConsole/AttachConsole berlaku untuk seluruh proses, jadi tidak dilakukan di worker).
+
+def _k32():
+    import ctypes
+    from ctypes import wintypes as W
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenProcess.restype = W.HANDLE
+    k.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
+    k.CloseHandle.argtypes = [W.HANDLE]
+    k.CreateToolhelp32Snapshot.restype = W.HANDLE
+    k.CreateToolhelp32Snapshot.argtypes = [W.DWORD, W.DWORD]
+    k.GetProcessTimes.argtypes = [W.HANDLE] + [ctypes.POINTER(W.FILETIME)] * 4
+    k.Process32FirstW.argtypes = k.Process32NextW.argtypes = [W.HANDLE, ctypes.c_void_p]
+    k.GetConsoleScreenBufferInfo.argtypes = [W.HANDLE, ctypes.c_void_p]
+    k.ReadConsoleOutputCharacterW.argtypes = [W.HANDLE, W.LPWSTR, W.DWORD, W._COORD, ctypes.POINTER(W.DWORD)]
+    return ctypes, W, k
+
+
+def _win_cmdline(h):
+    ctypes, W, _ = _k32()
+    nt = ctypes.WinDLL("ntdll")
+    nt.NtQueryInformationProcess.argtypes = [W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.ULONG, ctypes.POINTER(W.ULONG)]
+    nt.NtQueryInformationProcess.restype = ctypes.c_long
+
+    class US(ctypes.Structure):
+        _fields_ = [("Length", ctypes.c_ushort), ("MaximumLength", ctypes.c_ushort), ("Buffer", ctypes.c_void_p)]
+    size = W.ULONG(0)
+    nt.NtQueryInformationProcess(h, 60, None, 0, ctypes.byref(size))  # ProcessCommandLineInformation
+    if not size.value:
+        return None
+    buf = ctypes.create_string_buffer(size.value)
+    if nt.NtQueryInformationProcess(h, 60, buf, size, ctypes.byref(size)) != 0:
+        return None
+    us = US.from_buffer(buf)
+    return ctypes.wstring_at(us.Buffer, us.Length // 2) if us.Buffer and us.Length else ""
+
+
+def _win_split(cmd):
+    ctypes, W, _ = _k32()
+    sh = ctypes.WinDLL("shell32")
+    sh.CommandLineToArgvW.restype = ctypes.POINTER(W.LPWSTR)
+    sh.CommandLineToArgvW.argtypes = [W.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+    n = ctypes.c_int(0)
+    p = sh.CommandLineToArgvW(cmd, ctypes.byref(n))
+    if not p:
+        return cmd.split()
+    try:
+        return [p[i] for i in range(n.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(ctypes.cast(p, ctypes.c_void_p))
+
+
+def _win_open(pid):
+    _, _, k = _k32()
+    return k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+
+
+def _win_argv(pid):
+    _, _, k = _k32()
+    h = _win_open(pid)
+    if not h:
+        return None
+    try:
+        c = _win_cmdline(h)
+        return _win_split(c) if c else None
+    finally:
+        k.CloseHandle(h)
+
+
+def _win_procs():
+    ctypes, W, k = _k32()
+
+    class PE(ctypes.Structure):
+        _fields_ = [("dwSize", W.DWORD), ("cntUsage", W.DWORD), ("th32ProcessID", W.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", W.DWORD), ("cntThreads", W.DWORD),
+                    ("th32ParentProcessID", W.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", W.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+    snap = k.CreateToolhelp32Snapshot(2, 0)  # TH32CS_SNAPPROCESS
+    if not snap or snap == W.HANDLE(-1).value:
+        return {}
+    rows = []
+    try:
+        e = PE()
+        e.dwSize = ctypes.sizeof(PE)
+        ok = k.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            rows.append((e.th32ProcessID, e.th32ParentProcessID, e.szExeFile))
+            ok = k.Process32NextW(snap, ctypes.byref(e))
+    finally:
+        k.CloseHandle(snap)
+    wanted = set(INTERPRETERS) | {b for a in CATALOG for b in a["bins"]} | {"codex"}
+    out = {}
+    for pid, ppid, exe in rows:
+        if pid in (0, 4):
+            continue
+        h = _win_open(pid)
+        if not h:
+            continue  # proses milik user lain / sistem
+        try:
+            start = 0
+            ft = [W.FILETIME() for _ in range(4)]
+            if k.GetProcessTimes(h, *[ctypes.byref(x) for x in ft]):
+                t = (ft[0].dwHighDateTime << 32) | ft[0].dwLowDateTime
+                start = int(t / 10000000 - 11644473600)
+            name = _base(exe)
+            argv = None
+            if name in wanted or name.startswith("python3"):
+                c = _win_cmdline(h)
+                argv = _win_split(c) if c else None
+            out[pid] = {"ppid": ppid, "argv": argv or [exe], "start": start}
+        finally:
+            k.CloseHandle(h)
+    return out
+
+
+def _wincon(pid, op, payload):
+    """Jalankan pembantu konsol (lihat cmd_wincon) untuk proses agent pid; kembalikan keluarannya."""
+    if not pid:
+        raise RuntimeError("no process to type into")
+    r = subprocess.run([sys.executable, os.path.abspath(__file__), "_wincon", str(pid), op],
+                       input=jdump(payload), capture_output=True, text=True, timeout=20,
+                       encoding="utf-8", errors="replace", creationflags=0x00000008 if WIN else 0)  # DETACHED_PROCESS
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout or "console helper failed").strip()[-300:])
+    return r.stdout
+
+
+WIN_VK = {"enter": (0x0D, "\r", 0), "down": (0x28, "\0", 0x100), "up": (0x26, "\0", 0x100),
+          "esc": (0x1B, "\x1b", 0), "tab": (0x09, "\t", 0), "left": (0x25, "\0", 0x100), "right": (0x27, "\0", 0x100)}
+
+
+def cmd_wincon(args):
+    """_wincon <pid> text|keys|screen  (JSON di stdin). Hanya Windows."""
+    pid, op = int(args[0]), args[1]
+    payload = json.loads(sys.stdin.read() or "{}")
+    ctypes, W, k = _k32()
+
+    class KEY(ctypes.Structure):
+        _fields_ = [("bKeyDown", W.BOOL), ("wRepeatCount", W.WORD), ("wVirtualKeyCode", W.WORD),
+                    ("wVirtualScanCode", W.WORD), ("uChar", W.WCHAR), ("dwControlKeyState", W.DWORD)]
+
+    class REC(ctypes.Structure):
+        _fields_ = [("EventType", W.WORD), ("Event", KEY)]
+    k.CreateFileW.restype = W.HANDLE
+    k.CreateFileW.argtypes = [W.LPCWSTR, W.DWORD, W.DWORD, ctypes.c_void_p, W.DWORD, W.DWORD, W.HANDLE]
+    k.WriteConsoleInputW.argtypes = [W.HANDLE, ctypes.c_void_p, W.DWORD, ctypes.POINTER(W.DWORD)]
+    k.FreeConsole()
+    if not k.AttachConsole(pid):
+        err = ctypes.get_last_error()
+        sys.stderr.write("cannot reach the console window of pid %d (Windows error %d)%s" % (
+            pid, err, " — it runs in another Windows session than SSH; see TermX help" if err in (5, 31) else ""))
+        sys.stderr.flush()
+        os._exit(2)
+    rw, share = 0x80000000 | 0x40000000, 0x1 | 0x2
+    try:
+        if op == "screen":
+            COORD = W._COORD
+
+            class RECT(ctypes.Structure):
+                _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short), ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
+
+            class CSBI(ctypes.Structure):
+                _fields_ = [("dwSize", COORD), ("dwCursorPosition", COORD), ("wAttributes", W.WORD),
+                            ("srWindow", RECT), ("dwMaximumWindowSize", COORD)]
+            h = k.CreateFileW("CONOUT$", rw, share, None, 3, 0, None)
+            info = CSBI()
+            k.GetConsoleScreenBufferInfo(h, ctypes.byref(info))
+            w = info.dwSize.X
+            bottom = info.srWindow.Bottom
+            top = max(0, bottom - int(payload.get("lines") or 60) + 1)
+            rows = []
+            buf = ctypes.create_unicode_buffer(w + 1)
+            n = W.DWORD(0)
+            for y in range(top, bottom + 1):
+                k.ReadConsoleOutputCharacterW(h, buf, w, COORD(0, y), ctypes.byref(n))
+                rows.append(buf.value[:n.value].rstrip())
+            k.CloseHandle(h)
+            os.write(1, "\n".join(rows).encode("utf-8"))
+            return
+        h = k.CreateFileW("CONIN$", rw, share, None, 3, 0, None)
+        recs = []
+
+        def key(vk, ch, flags=0):
+            for down in (1, 0):
+                r = REC()
+                r.EventType = 1  # KEY_EVENT
+                r.Event.bKeyDown, r.Event.wRepeatCount, r.Event.wVirtualKeyCode = down, 1, vk
+                r.Event.uChar, r.Event.dwControlKeyState = ch, flags
+                recs.append(r)
+        if op == "text":
+            text = payload.get("text") or ""
+            units = text.replace("\r\n", "\n").encode("utf-16-le")
+            for i in range(0, len(units), 2):
+                ch = units[i:i + 2].decode("utf-16-le", "surrogatepass")
+                if ch == "\n":
+                    key(0x4A, "\n", 0x0008)  # Ctrl+J: baris baru tanpa mengirim
+                else:
+                    key(0, ch)
+            key(*WIN_VK["enter"])
+        else:
+            for name in payload.get("keys") or []:
+                key(*WIN_VK[name]) if name in WIN_VK else [key(0, c) for c in name]
+        arr = (REC * len(recs))(*recs)
+        done = W.DWORD(0)
+        step = 512
+        for i in range(0, len(recs), step):
+            part = (REC * min(step, len(recs) - i)).from_buffer(arr, i * ctypes.sizeof(REC))
+            if not k.WriteConsoleInputW(h, ctypes.byref(part), len(part), ctypes.byref(done)):
+                raise OSError("WriteConsoleInputW failed (Windows error %d)" % ctypes.get_last_error())
+            if op == "text" and i + step < len(recs):
+                time.sleep(0.02)
+        k.CloseHandle(h)
+        os.write(1, b"OK")
+    finally:
+        k.FreeConsole()
+
 def _proc_is(pid, agent):
     if not pid:
         return False
+    if WIN or not os.path.isdir("/proc"):
+        if not _pid_alive(pid):
+            return False
+        argv = _win_argv(pid) if WIN else None
+        if argv is None:  # baris perintah tidak terbaca: percayai berkas sesi Claude Code
+            return agent == "claude" and bool(_claude_session(pid))
+        return _agent_of(argv) == agent
     raw = _read("/proc/%d/cmdline" % pid, binary=True)
     return bool(raw) and _agent_of([a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]) == agent
 
@@ -2024,6 +2306,8 @@ def _screen(mi, lines=60):
         elif mi.get("where") == "tmux" and mi.get("tmux"):
             r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", mi["tmux"], "-S", "-%d" % lines],
                                capture_output=True, text=True, timeout=5)
+        elif mi.get("where") == "wincon" and mi.get("pid"):
+            r = types.SimpleNamespace(stdout=_wincon(mi["pid"], "screen", {"lines": lines}))
         else:
             return ""
     except Exception:
@@ -2096,6 +2380,8 @@ def _place(f):
     if f["where"] == "tmux":
         t = f.get("tmux") or {}
         return "tmux %s:%s.%s" % (t.get("session"), t.get("window"), t.get("pane"))
+    if f["where"] == "wincon":
+        return "Windows terminal (pid %s)" % f.get("pid")
     return "terminal " + (f.get("tty") or "")
 
 
@@ -2226,7 +2512,7 @@ class MirrorAdapter:
         return False
 
     def _interactive(self):
-        return self.mi.get("where") in ("tmux", "herdr", "pty") and not self.gone
+        return self.mi.get("where") in ("tmux", "herdr", "pty", "wincon") and not self.gone
 
     def _keys(self, *keys):
         """Tombol dengan nama netral: enter, down, esc, atau satu karakter."""
@@ -2235,6 +2521,8 @@ class MirrorAdapter:
                            capture_output=True, timeout=5)
         elif self.mi.get("where") == "pty":
             _pty_send(self.mi.get("pty"), {"keys": list(keys)})
+        elif self.mi.get("where") == "wincon":
+            _wincon(self.mi.get("pid"), "keys", {"keys": list(keys)})
         else:
             names = {"enter": "Enter", "down": "Down", "up": "Up", "esc": "Escape"}
             for k in keys:
@@ -2249,6 +2537,8 @@ class MirrorAdapter:
                 raise RuntimeError((r.stderr or r.stdout or "herdr prompt failed").strip()[:300])
         elif self.mi.get("where") == "pty":
             _pty_send(self.mi.get("pty"), {"text": text})
+        elif self.mi.get("where") == "wincon":
+            _wincon(self.mi.get("pid"), "text", {"text": text})
         else:
             subprocess.run(["tmux", "load-buffer", "-b", "termx", "-"], input=text.encode(), capture_output=True, timeout=5, check=True)
             subprocess.run(["tmux", "paste-buffer", "-d", "-p", "-b", "termx", "-t", self.mi["tmux"]], capture_output=True, timeout=5, check=True)
@@ -2320,7 +2610,7 @@ class MirrorAdapter:
         found, herdr_bin = _running()
         sess = self.w.meta.get("session") or ""
         mine = ("herdr", self.mi.get("herdr_pane")) if self.mi.get("where") == "herdr" else ("tmux", self.mi.get("tmux"))
-        cands = [f for f in found if f["agent"] == self.agent and f["where"] in ("tmux", "herdr", "pty")]
+        cands = [f for f in found if f["agent"] == self.agent and f["where"] in ("tmux", "herdr", "pty", "wincon")]
         f = next((f for f in cands if sess and f.get("session") == sess), None) \
             or next((f for f in cands if mine[1] and _pane_target(f) == mine), None)
         if f is None:
@@ -2367,6 +2657,10 @@ class MirrorAdapter:
             return True
         if where == "tmux" and self.mi.get("tmux") and self._reopen_tmux(binp, args, cwd):
             return True
+        if WIN:
+            # Jendela di desktop Windows tidak bisa dibuka dari sesi SSH: minta dibuka lagi di PC-nya.
+            raise RuntimeError("The agent's window on Windows was closed. On the PC, open a terminal in %s and run: %s %s "
+                               "— this chat will follow it." % (cwd, self.agent, " ".join(args)))
         # Terminal aslinya sudah ditutup: lanjutkan sesi yang sama di tmux baru (tetap terlihat di terminal).
         mi = _new_in_tmux(self.agent, cwd, "", "", args)
         for k in ("where", "pid", "herdr_pane", "tmux", "place", "owned"):
@@ -2644,6 +2938,8 @@ def _pane_target(f):
         return "herdr", (f.get("herdr") or {}).get("pane", "")
     if f.get("where") == "pty":
         return "pty", (f.get("pty") or {}).get("sock", "")
+    if f.get("where") == "wincon":
+        return "wincon", str(f.get("pid") or "")
     return "", ""
 
 
@@ -3325,7 +3621,7 @@ COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
     "hermes-setup": cmd_hermes_setup, "wrap": cmd_wrap, "shell-setup": cmd_shell_setup,
-    "post": cmd_post, "isdir": cmd_isdir,
+    "post": cmd_post, "isdir": cmd_isdir, "_wincon": cmd_wincon,
 }
 
 
