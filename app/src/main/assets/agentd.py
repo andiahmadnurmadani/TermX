@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 6
+VERSION = 7
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -62,6 +62,44 @@ def clip(s, n=MAX_OUT):
     if not isinstance(s, str):
         s = jdump(s)
     return s if len(s) <= n else s[: n // 2] + "\n…\n" + s[-n // 2:]
+
+
+CTX_CACHE = os.path.expanduser("~/.termx/context.json")
+
+
+def _ctx_used(u):
+    """Konteks yang terpakai = seluruh token input pesan terakhir (termasuk cache)."""
+    if not isinstance(u, dict):
+        return 0
+    return (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+
+
+def _ctx_window(model):
+    """Ukuran jendela konteks yang pernah dilaporkan Claude Code untuk model ini (0 = belum diketahui)."""
+    try:
+        with open(CTX_CACHE, encoding="utf-8") as f:
+            return int((json.load(f) or {}).get(model or "", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _ctx_remember(model, window):
+    if not model or not window:
+        return
+    try:
+        try:
+            with open(CTX_CACHE, encoding="utf-8") as f:
+                d = json.load(f) or {}
+        except Exception:
+            d = {}
+        if d.get(model) != window:
+            d[model] = window
+            tmp = CTX_CACHE + ".%d" % os.getpid()
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(d, f)
+            os.replace(tmp, CTX_CACHE)
+    except OSError:
+        pass
 
 
 def version_of(cmd):
@@ -237,9 +275,18 @@ def cmd_rm(args):
         if not worker_alive(cid):
             break
         time.sleep(0.1)
+    if worker_alive(cid):  # masih bandel: paksa berhenti
+        stop_worker(cid, signal.SIGKILL)
+        time.sleep(0.2)
     if owned and shutil.which("tmux"):  # sesi tmux yang dibuat TermX untuk chat ini
         subprocess.run(["tmux", "kill-session", "-t", "=" + owned], capture_output=True)
-    shutil.rmtree(chat_dir(cid), ignore_errors=True)
+    for _ in range(5):
+        shutil.rmtree(chat_dir(cid), ignore_errors=True)
+        if not os.path.exists(chat_dir(cid)):
+            break
+        time.sleep(0.2)
+    if os.path.exists(chat_dir(cid)):
+        raise SystemExit("could not delete the conversation")
     print("{}")
 
 
@@ -256,10 +303,10 @@ def cmd_rename(args):
     print("{}")
 
 
-def stop_worker(cid):
+def stop_worker(cid, sig=signal.SIGTERM):
     try:
         with open(os.path.join(chat_dir(cid), "worker.pid")) as f:
-            os.killpg(int(f.read().strip()), signal.SIGTERM)
+            os.killpg(int(f.read().strip()), sig)
     except Exception:
         pass
 
@@ -699,6 +746,9 @@ class ClaudeAdapter:
         elif t == "assistant":
             if o.get("parent_tool_use_id"):
                 return  # pesan sub-agent: cukup tampil sebagai kartu Task
+            used = _ctx_used((o.get("message") or {}).get("usage"))
+            if used:
+                self.ctx_used = used
             for b in (o.get("message") or {}).get("content") or []:
                 if b.get("type") == "tool_use":
                     self.w.emit({"t": "tool", "id": b.get("id"), "name": b.get("name"),
@@ -750,6 +800,11 @@ class ClaudeAdapter:
                              tokens_out=m.get("tokens_out", 0) + tout)
             mu = o.get("modelUsage") or {}
             models = sorted(mu, key=lambda k: (mu[k] or {}).get("outputTokens", 0), reverse=True)
+            if models:
+                window = (mu[models[0]] or {}).get("contextWindow") or 0
+                _ctx_remember(models[0], window)
+                if getattr(self, "ctx_used", 0):
+                    self.w.emit({"t": "context", "used": self.ctx_used, "size": window})
             self.w.emit({"t": "done", "ok": not o.get("is_error"), "cost": cost, "in": tin, "out": tout,
                          "ms": o.get("duration_ms"), "turns": o.get("num_turns"), "model": models[0] if models else None,
                          "error": clip(o.get("result"), 600) if o.get("is_error") else None})
@@ -1519,15 +1574,30 @@ def transcript_of(agent, pid, session, cwd, started):
 
 def cmd_running(_args):
     out, herdr_bin = _running()
-    mirrors = {}
+    mirrors, owned, live = {}, {}, set()
     if os.path.isdir(ROOT):
         for cid in os.listdir(ROOT):
             m = read_meta(cid) or {}
+            if m.get("superseded"):
+                continue
+            live.add(cid)
             mi = m.get("mirror") or {}
             if mi:
                 mirrors[(mi.get("pid") or 0, mi.get("herdr_pane") or "")] = cid
+                if mi.get("owned"):
+                    owned[mi["owned"]] = cid
+    keep = []
     for f in out:
-        f["chat"] = mirrors.get((f["pid"], (f.get("herdr") or {}).get("pane", ""))) or ""
+        own = f.pop("owner", "")
+        if f["where"] == "termx":
+            if own not in live:
+                continue  # chat sudah dihapus
+            f["chat"] = own
+        else:
+            f["chat"] = (mirrors.get((f["pid"], (f.get("herdr") or {}).get("pane", "")))
+                         or owned.get((f.get("tmux") or {}).get("session", "")) or "")
+        keep.append(f)
+    out = keep
     print(jdump({"running": out, "herdr_bin": herdr_bin or "", "tmux": bool(shutil.which("tmux"))}))
 
 
@@ -1541,14 +1611,17 @@ def _running():
         agent = _agent_of(p["argv"])
         if not agent:
             continue
-        where, info, seen, cur, dup = "other", {}, set(), p["ppid"], False
+        where, info, seen, cur, dup, owner = "other", {}, set(), p["ppid"], False, ""
         while cur > 1 and cur not in seen:
             seen.add(cur)
             q = procs.get(cur)
             if q is None:
                 break
             if cur == me or any("agentd.py" in a for a in q["argv"][:3]):
-                where = "termx"   # chat milik TermX sendiri: sudah tampil di daftar percakapan
+                where = "termx"   # dijalankan TermX: tampil bila milik worker chat, selain itu (mis. cek kuota) diabaikan
+                argv = q["argv"]
+                if "_worker" in argv and argv.index("_worker") + 1 < len(argv):
+                    owner = argv[argv.index("_worker") + 1]
                 break
             if _agent_of(q["argv"]) == agent:
                 dup = True        # proses anak dari agent yang sama (mis. pembungkus node)
@@ -1559,7 +1632,7 @@ def _running():
                 elif q["argv"] and os.path.basename(q["argv"][0]) == "herdr":
                     where = "herdr"
             cur = q["ppid"]
-        if dup or where == "termx":
+        if dup or (where == "termx" and not owner):
             continue
         if where == "other" and pid in panes:
             where, info = "tmux", panes[pid]
@@ -1572,7 +1645,7 @@ def _running():
             tty = tty if tty.startswith("/dev/pts") or tty.startswith("/dev/tty") else ""
         except OSError:
             tty = ""
-        found.append({"agent": agent, "pid": pid, "cwd": cwd, "started": p["start"], "where": where,
+        found.append({"agent": agent, "pid": pid, "cwd": cwd, "started": p["start"], "where": where, "owner": owner,
                       "tty": tty.replace("/dev/", ""), "session": _session_arg(p["argv"]), **(
                           {"tmux": info, "title": info.get("title", "")} if where == "tmux" else {})})
 
@@ -1697,7 +1770,11 @@ class TranscriptConverter:
         if t == "system":
             st = o.get("subtype")
             if st == "turn_duration":
-                return [{"t": "done", "ok": True, "cost": 0, "in": 0, "out": 0, "ms": o.get("durationMs")}]
+                out = [{"t": "done", "ok": True, "cost": 0, "in": 0, "out": 0, "ms": o.get("durationMs"),
+                        "model": getattr(self, "model", None)}]
+                if getattr(self, "ctx", 0):
+                    out.insert(0, {"t": "context", "used": self.ctx, "size": _ctx_window(getattr(self, "model", ""))})
+                return out
             if st == "compact_boundary":
                 return [{"t": "note", "msg": "Conversation compacted"}]
             return []
@@ -1729,6 +1806,13 @@ class TranscriptConverter:
             return ([{"t": "user", "text": u}] if u else []) + out
         if t == "assistant":
             out = []
+            used = _ctx_used(msg.get("usage"))
+            if used:
+                self.ctx = used
+            mdl = msg.get("model")
+            if mdl and mdl != "<synthetic>" and mdl != getattr(self, "model", None):
+                self.model = mdl
+                out.append({"t": "model", "model": mdl})
             for i, b in enumerate(content or []):
                 if not isinstance(b, dict):
                     continue
@@ -2034,10 +2118,18 @@ class MirrorAdapter:
         self.w.emit({"t": "perm_done", "rid": rid, "allow": allow})
 
     def set_model(self, model):
+        # Claude Code menerima "/model <nama>" langsung di sesinya.
+        if self.agent == "claude" and model and re.match(r"^[\w.\[\]-]+$", model) and self._interactive() and self._alive():
+            try:
+                self._type("/model " + model)
+                self.w.emit({"t": "model", "model": model})
+            except Exception as e:
+                self.w.emit({"t": "error", "msg": "could not change the model: %s" % e})
+            return
         self.w.emit({"t": "note", "msg": "Change the model in the agent's own session (e.g. /model)."})
 
     def set_mode(self, mode):
-        self.set_model(mode)
+        self.emit({"t": "note", "msg": "Change the mode in the agent's own session."})
 
     def interrupt(self):
         if self._interactive():
@@ -2387,9 +2479,117 @@ def cmd_usage(args):
     print(jdump(res))
 
 
+# ---------------------------------------------------------------- setup Hermes dari aplikasi
+# Memakai API Hermes sendiri (hermes_cli.config / auth / models) di Python milik Hermes, sama seperti
+# alur `hermes model`: kunci API ke ~/.hermes/.env, provider & model ke config.yaml. Kunci API hanya
+# lewat stdin, tidak pernah di argumen proses, dan tidak pernah dikirim balik ke aplikasi.
+HERMES_HELPER = r"""
+import json, sys
+op = sys.argv[1]
+from hermes_cli import auth as A
+from hermes_cli import config as C
+def provs():
+    out = [{"id": "openrouter", "name": "OpenRouter", "env": "OPENROUTER_API_KEY", "base_url": "", "auth": "api_key"}]
+    seen = set()
+    for pid, pc in A.PROVIDER_REGISTRY.items():
+        envs = list(getattr(pc, "api_key_env_vars", ()) or ())
+        sig = (envs[0] if envs else pid, getattr(pc, "inference_base_url", "") or "")
+        if sig in seen:  # alias provider yang sama (mis. fw = fireworks)
+            continue
+        seen.add(sig)
+        out.append({"id": pid, "name": getattr(pc, "name", pid) or pid, "env": envs[0] if envs else "",
+                    "base_url": getattr(pc, "inference_base_url", "") or "", "auth": getattr(pc, "auth_type", "") or ""})
+    return out
+if op == "status":
+    cfg = C.load_config()
+    m = cfg.get("model")
+    m = m if isinstance(m, dict) else ({"default": m} if m else {})
+    ps = provs()
+    keys = {}
+    for p in ps:
+        if p["env"]:
+            keys[p["id"]] = bool(C.get_env_value(p["env"]))
+    try:
+        active = (A._load_auth_store() or {}).get("active_provider") or ""
+    except Exception:
+        active = ""
+    print(json.dumps({"provider": str(m.get("provider") or ""), "model": str(m.get("default") or m.get("model") or ""),
+                      "base_url": str(m.get("base_url") or ""), "active_oauth": active, "providers": ps, "keys": keys}))
+elif op == "models":
+    from hermes_cli.models import provider_model_ids
+    try:
+        ids = provider_model_ids(sys.argv[2])
+    except Exception:
+        ids = []
+    print(json.dumps({"models": [str(i) for i in (ids or [])][:300]}))
+elif op == "apply":
+    req = json.loads(sys.stdin.read() or "{}")
+    pid, model = str(req.get("provider") or ""), str(req.get("model") or "").strip()
+    info = next((p for p in provs() if p["id"] == pid), None)
+    if not info or info["auth"] != "api_key" or not model:
+        raise SystemExit("provider or model not valid")
+    key = str(req.get("key") or "").strip()
+    if key:
+        if not info["env"]:
+            raise SystemExit("this provider has no API key setting")
+        C.save_env_value(info["env"], key)
+    elif info["env"] and not C.get_env_value(info["env"]):
+        raise SystemExit("API key is required")
+    A._save_model_choice(model)
+    cfg = C.load_config()
+    m = cfg.get("model")
+    if not isinstance(m, dict):
+        m = {"default": m} if m else {}
+        cfg["model"] = m
+    m["provider"] = pid
+    if pid == "openrouter":
+        from hermes_constants import OPENROUTER_BASE_URL
+        m["base_url"] = OPENROUTER_BASE_URL
+        m["api_mode"] = "chat_completions"
+    else:
+        m["base_url"] = info["base_url"]
+    C.clear_model_endpoint_credentials(m, clear_api_mode=False)
+    C.save_config(cfg)
+    A.deactivate_provider()
+    print(json.dumps({"ok": True, "provider": pid, "model": model}))
+"""
+
+
+def _hermes_python():
+    b = shutil.which("hermes")
+    if not b:
+        raise SystemExit("hermes is not installed on this server")
+    try:
+        with open(os.path.realpath(b), "rb") as f:
+            first = f.readline().decode("utf-8", "replace").strip()
+    except OSError:
+        first = ""
+    py = first[2:].strip().split()[0] if first.startswith("#!") else ""
+    if not py or not os.path.isfile(py) or "python" not in os.path.basename(py):
+        raise SystemExit("could not find the Python used by hermes")
+    return py
+
+
+def cmd_hermes_setup(args):
+    # hermes-setup status | models <provider> | apply (JSON lewat stdin)
+    op = args[0] if args else "status"
+    if op not in ("status", "models", "apply"):
+        raise SystemExit("usage: hermes-setup status|models <provider>|apply")
+    argv = [_hermes_python(), "-c", HERMES_HELPER, op] + (args[1:2] if op == "models" else [])
+    data = sys.stdin.read() if op == "apply" else ""
+    r = subprocess.run(argv, input=data, capture_output=True, text=True,
+                       timeout=60 if op == "models" else 30, cwd=os.path.expanduser("~"))
+    line = next((l for l in reversed(r.stdout.splitlines()) if l.startswith("{")), "")
+    if r.returncode != 0 or not line:
+        err = (r.stderr.strip().splitlines() or ["hermes setup failed"])[-1]
+        raise SystemExit(err[:300])
+    print(line)
+
+
 COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
+    "hermes-setup": cmd_hermes_setup,
 }
 
 

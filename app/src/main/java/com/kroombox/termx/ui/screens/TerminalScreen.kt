@@ -2,6 +2,16 @@
 
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import com.kroombox.termx.i18n.S
 import com.kroombox.termx.R
 import androidx.compose.ui.res.stringResource
@@ -284,6 +294,12 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            // Isi password sudo dan saran perintah melayang di atas terminal: tidak memakan tempat,
+            // tidak mengubah ukuran terminal, dan menjauh dari baris kursor.
+            // Composable terpisah: baris ketikan berubah tiap tombol, cukup lapisan ini yang digambar ulang.
+            SuggestionsOverlay(current, settings.autocomplete, data.snippets) {
+                uiScope.launch { current.typeSudoPassword() }
+            }
             DisposableEffect(current.id, settings.vibrateOnBell) {
                 current.onScreenUpdate = { viewHolder[0]?.postInvalidateOnAnimation() }
                 current.onBell = if (settings.vibrateOnBell) ({ viewHolder[0]?.post { viewHolder[0]?.onBell() } }) else null
@@ -308,12 +324,6 @@ fun TerminalScreen(nav: Nav, initialSessionId: String?) {
                 },
                 onClose = { viewHolder[0]?.clearSelection() },
             )
-        }
-
-        // Isi password sudo (prompt yang tidak diisi otomatis) dan saran perintah (autocomplete).
-        // Composable terpisah: baris ketikan berubah tiap tombol, cukup bar ini yang digambar ulang.
-        SuggestionsBar(current, settings.autocomplete, data.snippets) {
-            uiScope.launch { current.typeSudoPassword() }
         }
 
         // Kontrol ala Termius di bawah: kembali, sesi aktif (✕ tutup), + sesi baru, keyboard.
@@ -501,7 +511,8 @@ private fun SuggestionPill(
         color = Palette.SurfaceHigh,
         shape = RoundedCornerShape(10.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.35f)),
-        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick),
+        shadowElevation = 6.dp,
+        onClick = onClick,
     ) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
@@ -623,7 +634,9 @@ private fun ExtraKeysBar(
     onPaste: () -> Unit,
     leading: @Composable () -> Unit,
 ) {
-    val keys = remember(layout) { parseExtraKeys(layout) }
+    // Panah selalu tampil di kanan (tidak ikut tergulir), sisanya di baris yang bisa digeser.
+    val arrows = setOf(TermKey.UP, TermKey.DOWN, TermKey.LEFT, TermKey.RIGHT)
+    val keys = remember(layout) { parseExtraKeys(layout).filterNot { it is ExtraKey.Key && it.key in arrows } }
     Row(
         Modifier.fillMaxWidth().background(Palette.Surface).padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -639,6 +652,61 @@ private fun ExtraKeysBar(
                 }
             }
         }
+        Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(28.dp).background(Palette.SurfaceHighest))
+        ArrowPad(onKey)
+    }
+}
+
+/**
+ * Empat panah yang langsung bereaksi saat disentuh (bukan saat dilepas, jadi tidak tertelan gulir),
+ * bergetar halus, dan berulang bila ditahan — seperti tombol panah keyboard fisik.
+ */
+@Composable
+private fun ArrowPad(onKey: (TermKey) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+        RepeatKey(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "←") { onKey(TermKey.LEFT) }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            RepeatKey(Icons.Rounded.KeyboardArrowUp, "↑", half = true) { onKey(TermKey.UP) }
+            RepeatKey(Icons.Rounded.KeyboardArrowDown, "↓", half = true) { onKey(TermKey.DOWN) }
+        }
+        RepeatKey(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "→") { onKey(TermKey.RIGHT) }
+    }
+}
+
+@Composable
+private fun RepeatKey(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, half: Boolean = false, onFire: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val fire by androidx.compose.runtime.rememberUpdatedState(onFire)
+    var pressed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Box(
+        Modifier
+            .size(width = 40.dp, height = if (half) 19.dp else 40.dp)
+            .clip(RoundedCornerShape(if (half) 6.dp else 8.dp))
+            .background(if (pressed) Palette.Accent.copy(alpha = 0.28f) else Palette.SurfaceHigh)
+            .semantics { contentDescription = desc }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false).consume()
+                    pressed = true
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    fire()
+                    val repeat = scope.launch {
+                        delay(380)
+                        while (true) { fire(); delay(55) }
+                    }
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        ev.changes.forEach { it.consume() }
+                        if (ev.changes.all { !it.pressed }) break
+                    }
+                    repeat.cancel()
+                    pressed = false
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = Palette.Accent, modifier = Modifier.size(if (half) 18.dp else 22.dp))
     }
 }
 
@@ -705,7 +773,7 @@ fun clipboardText(context: Context): String? {
 
 /** Tombol isi password sudo dan saran perintah dari baris yang sedang diketik. */
 @Composable
-private fun SuggestionsBar(current: TerminalSession, autocomplete: Boolean, snippets: List<Snippet>, onFillSudo: () -> Unit) {
+private fun androidx.compose.foundation.layout.BoxScope.SuggestionsOverlay(current: TerminalSession, autocomplete: Boolean, snippets: List<Snippet>, onFillSudo: () -> Unit) {
     val mgr = TermXApp.container.sessions
     val askPassword by current.passwordPrompt.collectAsState()
     val inputLine by current.inputLine.collectAsState()
@@ -713,12 +781,18 @@ private fun SuggestionsBar(current: TerminalSession, autocomplete: Boolean, snip
         val l = inputLine
         if (autocomplete && !l.isNullOrEmpty()) mgr.suggestions(current.host.id, l) else emptyList()
     }
-    // Saat autocomplete aktif tinggi bar tetap: bila bar muncul/hilang tiap ketikan, ukuran terminal ikut berubah,
-    // server menerima resize dan menggambar ulang baris, sehingga ketikan terasa tertunda.
-    if (autocomplete || askPassword) {
+    val show = askPassword || suggestions.isNotEmpty()
+    // Kursor di separuh bawah layar: saran tampil di atas, dan sebaliknya, agar baris yang diketik tetap terlihat.
+    val emu = current.emulator
+    val cursorLow = emu.cursorY >= emu.rows / 2
+    androidx.compose.animation.AnimatedVisibility(
+        visible = show,
+        enter = androidx.compose.animation.fadeIn(tween(120)),
+        exit = androidx.compose.animation.fadeOut(tween(120)),
+        modifier = Modifier.align(if (cursorLow) Alignment.TopEnd else Alignment.BottomEnd),
+    ) {
         Row(
-            Modifier.fillMaxWidth().height(40.dp).background(Palette.Bg).horizontalScroll(rememberScrollState())
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+            Modifier.padding(6.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

@@ -418,7 +418,7 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (loading) com.kroombox.termx.ui.components.FlowBar(Modifier.fillMaxWidth())
             error?.let { msg ->
                 Row(
                     Modifier.fillMaxWidth().background(Palette.Danger.copy(alpha = 0.12f)).padding(horizontal = 12.dp, vertical = 6.dp),

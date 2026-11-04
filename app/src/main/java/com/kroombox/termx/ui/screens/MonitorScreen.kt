@@ -155,7 +155,7 @@ fun MonitorScreen(nav: Nav, hostId: String) {
             if (s == null) {
                 if (error == null) {
                     Spacer(Modifier.height(24.dp))
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    com.kroombox.termx.ui.components.FlowBar(Modifier.fillMaxWidth())
                     Text(if (useSudo) stringResource(R.string.mon_loading_sudo) else stringResource(R.string.mon_loading), color = Palette.TextDim, modifier = Modifier.padding(top = 12.dp))
                 }
                 return@Column

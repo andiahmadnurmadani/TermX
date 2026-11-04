@@ -91,10 +91,11 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         installed[hostId] = true
     }
 
-    private fun run(hostId: String, args: String, timeoutSec: Long = 30): JsonObject {
+    private fun run(hostId: String, args: String, timeoutSec: Long = 30, stdin: String? = null): JsonObject {
         val c = conn(hostId)
         ensureInstalled(c, hostId)
-        val r = c.exec("$PY $REMOTE $args", timeoutSec = timeoutSec)
+        val r = if (stdin != null) c.exec("$PY $REMOTE $args", timeoutSec = timeoutSec, stdin = stdin)
+        else c.exec("$PY $REMOTE $args", timeoutSec = timeoutSec)
         val line = r.stdout.lineSequence().lastOrNull { it.trim().startsWith("{") }
             ?: throw SshException(r.stderr.lineSequence().lastOrNull { it.isNotBlank() }?.take(300) ?: S.get(R.string.agent_bad_reply))
         return json.parseToJsonElement(line).jsonObject
@@ -140,6 +141,10 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     val pendingOpen = MutableStateFlow<Pair<String, String>?>(null)
 
     /** Sesi agent yang berjalan di server di luar TermX (tmux / herdr / terminal lain). */
+    /** Agent yang terakhir terlihat berjalan per host (untuk ikon di kartu host). */
+    private val _runningByHost = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val runningByHost: StateFlow<Map<String, List<String>>> = _runningByHost.asStateFlow()
+
     suspend fun running(hostId: String): RunningInfo = withContext(Dispatchers.IO) {
         val o = run(hostId, "running", timeoutSec = 20)
         RunningInfo(
@@ -157,7 +162,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                 }
             } ?: emptyList(),
             o.str("herdr_bin"),
-        )
+        ).also { ri -> _runningByHost.update { it + (hostId to ri.agents.map { a -> a.agent }.distinct()) } }
     }
 
     /** Buka sesi yang berjalan sebagai chat (riwayat dari transkrip agent); mengembalikan id chat. */
@@ -214,7 +219,35 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
     suspend fun delete(hostId: String, chatId: String) = withContext(Dispatchers.IO) {
         close(chatId)
+        synchronized(reducerCache) { reducerCache.remove(chatId) }
         run(hostId, "rm ${shq(chatId)}")
+        metaCache.remove(chatId)
+        clearNotification(chatId)
+    }
+
+    // ------------------------------------------------------------ setup Hermes
+
+    /** Provider & model Hermes saat ini, plus daftar provider (kunci API hanya dilaporkan ada/tidak). */
+    suspend fun hermesStatus(hostId: String): HermesStatus = withContext(Dispatchers.IO) {
+        val o = run(hostId, "hermes-setup status", timeoutSec = 40)
+        val keys = o.obj("keys")
+        HermesStatus(
+            o.str("provider"), o.str("model"), o.str("base_url"), o.str("active_oauth"),
+            o.arr("providers")?.mapNotNull { e ->
+                (e as? JsonObject)?.let { HermesProvider(it.str("id"), it.str("name"), it.str("env"), it.str("auth"), keys?.bool(it.str("id")) == true) }
+            } ?: emptyList(),
+        )
+    }
+
+    suspend fun hermesModels(hostId: String, provider: String): List<String> = withContext(Dispatchers.IO) {
+        run(hostId, "hermes-setup models ${shq(provider)}", timeoutSec = 75).arr("models")
+            ?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
+    }
+
+    /** Simpan pilihan; kunci API dikirim lewat stdin (tidak tampil di daftar proses server). */
+    suspend fun hermesApply(hostId: String, provider: String, model: String, key: String) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("provider", provider); put("model", model); if (key.isNotBlank()) put("key", key) }
+        run(hostId, "hermes-setup apply", timeoutSec = 40, stdin = body.toString())
     }
 
     suspend fun rename(hostId: String, chatId: String, title: String) = withContext(Dispatchers.IO) {
@@ -264,10 +297,16 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         return chat
     }
 
+    /** Isi chat yang baru ditutup: dibuka lagi langsung tampil tanpa memuat ulang dari awal. */
+    private val reducerCache = object : LinkedHashMap<String, ChatReducer>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ChatReducer>?) = size > 8
+    }
+
     fun close(chatId: String) {
         val chat = _chats.value[chatId] ?: return
         _chats.update { it - chatId }
         chat.stop()
+        chat.stash()
         sessions.release(chat.hostId, "agent:$chatId")
         sessions.refreshService()
     }
@@ -280,8 +319,8 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     }
 
     inner class AgentChat(val hostId: String, val chatId: String) {
-        private val reducer = ChatReducer()
-        private val _state = MutableStateFlow(ChatState())
+        private val reducer = synchronized(reducerCache) { reducerCache.remove(chatId) } ?: ChatReducer()
+        private val _state = MutableStateFlow(synchronized(reducer) { reducer.snapshot() })
         val state: StateFlow<ChatState> = _state.asStateFlow()
         private val dirty = Channel<Unit>(Channel.CONFLATED)
         private var job: Job? = null
@@ -393,6 +432,12 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         internal fun stop() {
             job?.cancel()
             runCatching { session?.close() }
+        }
+
+        /** Simpan isi yang sudah lengkap agar pembukaan berikutnya seketika (lanjut dari urutan terakhir). */
+        internal fun stash() {
+            val keep = synchronized(reducer) { reducer.snapshot().synced && !resetPending }
+            if (keep) synchronized(reducerCache) { reducerCache[chatId] = reducer }
         }
 
         private fun write(o: JsonObject) {

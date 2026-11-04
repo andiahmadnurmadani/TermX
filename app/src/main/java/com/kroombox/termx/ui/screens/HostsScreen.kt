@@ -63,6 +63,8 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -106,6 +108,15 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
         .sortedWith(compareByDescending<Host> { it.lastConnectedAt }.thenBy { it.label.lowercase() })
     val connectedHosts = remember(sessions, stateVersion) {
         sessions.filter { it.state.value == SessionState.CONNECTED }.map { it.host.id }.toSet()
+    }
+    // Agent yang berjalan di host yang tersambung: diperbarui berkala, tampil sebagai logo di kartunya.
+    val agentMgr = TermXApp.container.agents
+    val runningAgents by agentMgr.runningByHost.collectAsState()
+    LaunchedEffect(connectedHosts) {
+        while (connectedHosts.isNotEmpty()) {
+            for (id in connectedHosts) runCatching { agentMgr.running(id) }
+            kotlinx.coroutines.delay(20_000)
+        }
     }
 
     Box(modifier.fillMaxSize()) {
@@ -169,7 +180,8 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
                         }
                     }
                     items(list, key = { it.id }) { host ->
-                        HostCard(host, connected = host.id in connectedHosts, nav = nav)
+                        HostCard(host, connected = host.id in connectedHosts, nav = nav,
+                            agents = if (host.id in connectedHosts) runningAgents[host.id].orEmpty() else emptyList())
                     }
                 }
             }
@@ -270,7 +282,7 @@ private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (St
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
+private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<String> = emptyList()) {
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     Surface(
@@ -293,13 +305,28 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
             Column(Modifier.weight(1f)) {
                 Text(host.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(host.address, style = MonoSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OsCatalog.byId(host.osId)?.let { os -> Tag(os.title, Palette.TextDim) }
-                    if (host.persistentSession) Tag("tmux · ${host.tmuxSessionName}", Palette.TextDim)
-                    if (host.jumpHostId != null) Tag(stringResource(R.string.hosts_via_jump), Palette.TextDim)
-                    if (com.kroombox.termx.net.Tailscale.isTailnetAddress(host.hostname)) Tag("Tailscale", Palette.Blue)
-                    host.tags.take(2).forEach { Tag(it, Palette.TextDim) }
+                val tailnet = com.kroombox.termx.net.Tailscale.isTailnetAddress(host.hostname)
+                val hasMeta = agents.isNotEmpty() || tailnet || host.persistentSession || host.jumpHostId != null || host.tags.isNotEmpty()
+                if (hasMeta) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        // Logo OS sudah tampil di avatar; di sini cukup penanda yang menambah informasi.
+                        if (tailnet) {
+                            Box(
+                                Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).background(Palette.Blue.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    androidx.compose.ui.res.painterResource(R.drawable.ic_tailscale), "Tailscale",
+                                    tint = Palette.Blue, modifier = Modifier.size(12.dp),
+                                )
+                            }
+                        }
+                        if (agents.isNotEmpty()) RunningAgentsStrip(agents)
+                        if (host.persistentSession) Tag("tmux · ${host.tmuxSessionName}", Palette.TextDim)
+                        if (host.jumpHostId != null) Tag(stringResource(R.string.hosts_via_jump), Palette.TextDim)
+                        host.tags.take(2).forEach { Tag(it, Palette.TextDim) }
+                    }
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
@@ -323,6 +350,29 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
             },
             onDismiss = { confirmDelete = false },
         )
+    }
+}
+
+/** Logo agent yang sedang berjalan di host, ditumpuk sedikit, dengan titik hijau berdenyut. */
+@Composable
+private fun RunningAgentsStrip(agents: List<String>) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "live")
+    val a by t.animateFloat(
+        0.35f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "a",
+    )
+    Row(
+        Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.Accent.copy(alpha = 0.10f)).padding(start = 5.dp, end = 3.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(Palette.Accent.copy(alpha = a)))
+        Spacer(Modifier.width(5.dp))
+        agents.take(4).forEachIndexed { i, id ->
+            Box(Modifier.padding(start = if (i == 0) 0.dp else 2.dp)) { AgentGlyph(id, 18.dp) }
+        }
+        if (agents.size > 4) Text("+${agents.size - 4}", style = MaterialTheme.typography.labelSmall, color = Palette.Accent,
+            modifier = Modifier.padding(start = 3.dp))
     }
 }
 

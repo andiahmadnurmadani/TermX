@@ -360,3 +360,15 @@ class ChatReducer {
         state = state.copy(working = true)
     }
 }
+
+/** Provider yang dikenal Hermes (dari registri Hermes sendiri di server). */
+data class HermesProvider(val id: String, val name: String, val env: String, val auth: String, val hasKey: Boolean) {
+    val usesKey: Boolean get() = auth == "api_key"
+}
+
+data class HermesStatus(
+    val provider: String, val model: String, val baseUrl: String, val activeOauth: String,
+    val providers: List<HermesProvider>,
+) {
+    val configured: Boolean get() = (provider.isNotBlank() && model.isNotBlank()) || activeOauth.isNotBlank()
+}

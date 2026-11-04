@@ -79,6 +79,12 @@ import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.material.icons.rounded.Compress
+import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Public
@@ -283,6 +289,10 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
     var usage by remember { mutableStateOf<List<com.kroombox.termx.agent.ProviderUsage>?>(null) }
     var newAgent by remember { mutableStateOf<String?>(null) }
     var openError by remember { mutableStateOf<String?>(null) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
+    var hermesSetup by remember { mutableStateOf(false) }
+    var hermes by remember { mutableStateOf<com.kroombox.termx.agent.HermesStatus?>(null) }
+    val hasHermes = agents.any { it.id == "hermes" }
     val scope = rememberCoroutineScope()
     val live by mgr.chats.collectAsState()
     val limits = remember(refreshKey, chats) { mgr.savedLimits(hostId) }
@@ -290,6 +300,10 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
     DisposableEffect(hostId) {
         TermXApp.container.sessions.acquire(hostId, "agents:home")
         onDispose { TermXApp.container.sessions.release(hostId, "agents:home") }
+    }
+
+    LaunchedEffect(hasHermes, refreshKey) {
+        if (hasHermes) runCatching { hermes = mgr.hermesStatus(hostId) }
     }
 
     LaunchedEffect(refreshKey) {
@@ -358,11 +372,11 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
         val termAgents = agents.filter { !it.isChat }
         when {
             loading && agents.isEmpty() && chats == null -> Box(Modifier.padding(pad).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Palette.Accent, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
-                    Spacer(Modifier.height(14.dp))
-                    Text(stringResource(R.string.agent_detecting), color = Palette.TextDim, style = MaterialTheme.typography.bodyMedium)
-                }
+                com.kroombox.termx.ui.components.RadarLoader(
+                    stringResource(R.string.agent_detect_title),
+                    stringResource(R.string.agent_detect_sub, host?.label ?: ""),
+                    logos = DETECT_LOGOS,
+                )
             }
             error != null && agents.isEmpty() -> Box(Modifier.padding(pad)) {
                 EmptyState(Icons.Rounded.CloudOff, stringResource(R.string.agent_error_title), error ?: "") {
@@ -387,6 +401,7 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                         else nav.agentTerminal(hostId, a.id, a.bin, mgr.recentFolders(hostId).firstOrNull() ?: "~")
                     }
                 }
+                if (hasHermes) item("hermes") { HermesCard(hermes) { hermesSetup = true } }
                 if (termAgents.isNotEmpty()) item("dock-hint") {
                     Text(
                         stringResource(R.string.agent_terminal_hint), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
@@ -401,7 +416,8 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                             RunningRow(
                                 r, agentName(r.agent, agents), busy = opening == r.pid to r.herdrPane,
                                 onChat = {
-                                    if (opening == null) {
+                                    if (r.where == "termx" && r.chat.isNotBlank()) nav.agentChat(hostId, r.chat)
+                                    else if (opening == null) {
                                         opening = r.pid to r.herdrPane
                                         scope.launch {
                                             runCatching { mgr.mirror(hostId, r) }
@@ -494,6 +510,27 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
             scope.launch { runCatching { mgr.rename(hostId, m.id, title) }; refreshKey++ }
         }
     }
+    deleteError?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { deleteError = null },
+            icon = { Icon(Icons.Rounded.ErrorOutline, null, tint = Palette.Danger) },
+            title = { Text(stringResource(R.string.agent_delete_failed)) },
+            text = { Text(msg) },
+            confirmButton = { TextButton(onClick = { deleteError = null; refreshKey++ }) { Text(stringResource(R.string.agent_refresh)) } },
+        )
+    }
+
+    if (hermesSetup) {
+        HermesSetupSheet(
+            hostId, onDismiss = { hermesSetup = false },
+            onSaved = { scope.launch { runCatching { hermes = mgr.hermesStatus(hostId) } } },
+            onTerminal = {
+                val bin = agents.firstOrNull { it.id == "hermes" }?.bin?.ifBlank { null } ?: "hermes"
+                nav.agentTerminal(hostId, "hermes-setup", "$bin model", "~")
+            },
+        )
+    }
+
     deleting?.let { m ->
         ConfirmDialog(
             title = stringResource(R.string.agent_delete_title),
@@ -502,7 +539,14 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
             danger = true,
             onConfirm = {
                 deleting = null
-                scope.launch { runCatching { mgr.delete(hostId, m.id) }; refreshKey++ }
+                chats = chats?.filter { it.id != m.id }  // langsung hilang dari daftar
+                running = running?.let { ri -> ri.copy(agents = ri.agents.filter { it.chat != m.id || it.where != "termx" }) }
+                scope.launch {
+                    runCatching { mgr.delete(hostId, m.id) }
+                        .onFailure { e -> deleteError = (e.message ?: e.toString()) }
+                    runCatching { chats = mgr.list(hostId) }
+                    runCatching { running = mgr.running(hostId) }
+                }
             },
             onDismiss = { deleting = null },
         )
@@ -765,6 +809,10 @@ private fun agentColor(id: String): Color = when (id) {
     else -> Palette.TextDim
 }
 
+private val DETECT_LOGOS = listOf("claude", "opencode", "hermes", "antigravity", "codex", "gemini").map {
+    com.kroombox.termx.ui.components.OrbitLogo(agentLogo(it)!!, agentColor(it).let { c -> if (c == Color(0xFFE6EDF3)) Palette.Text else c })
+}
+
 /** Logo resmi agent (Lobe Icons) bila ada; selain itu monogram. */
 private fun agentLogo(id: String): Int? = when (id) {
     "claude" -> R.drawable.ic_agent_claude
@@ -774,6 +822,7 @@ private fun agentLogo(id: String): Int? = when (id) {
     "gemini" -> R.drawable.ic_agent_gemini
     "qwen" -> R.drawable.ic_agent_qwen
     "goose" -> R.drawable.ic_agent_goose
+    "antigravity" -> R.drawable.ic_agent_antigravity
     else -> null
 }
 
@@ -858,7 +907,14 @@ internal fun RunningRow(
     val place = when (r.where) {
         "tmux" -> "tmux"
         "herdr" -> "herdr"
+        "termx" -> "TermX"
         else -> null   // terminal lain (pts/…): tidak ditampilkan
+    }
+    val placeIcon = when (r.where) {
+        "tmux" -> Icons.Rounded.Terminal
+        "herdr" -> Icons.Rounded.Dashboard
+        "termx" -> Icons.Rounded.PhoneAndroid
+        else -> Icons.Rounded.Folder
     }
     val status = r.herdrStatus.ifBlank { r.status }
     val (statusText, statusColor) = when (status) {
@@ -884,10 +940,20 @@ internal fun RunningRow(
                     r.title.ifBlank { agent }, style = MaterialTheme.typography.bodyLarge, color = Palette.Text,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    listOfNotNull(place, shortPath(r.cwd)).joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (place != null) {
+                        Icon(placeIcon, null, tint = Palette.TextDim, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(place, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 1)
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Icon(Icons.Rounded.Folder, null, tint = Palette.TextDim, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        shortPath(r.cwd), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
@@ -1266,12 +1332,17 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                 onText = { input = it },
                 state = state,
                 agentName = agent?.name ?: meta?.agent ?: "",
-                models = if (mirror != null) emptyList() else modelChoices, model = if (mirror != null) "" else currentModel,
+                // Sesi Claude yang diikuti: ganti model diketik sebagai /model di sesinya sendiri.
+                models = if (mirror == null) modelChoices
+                else if (meta?.agent == "claude") (agent?.models?.map { Choice(it, it) } ?: emptyList()) else emptyList(),
+                model = if (mirror != null && meta?.agent != "claude") "" else currentModel,
                 modes = if (mirror != null) emptyList() else modeChoices, mode = currentMode,
                 onModel = { chat.setModel(it); mgr.rememberChoice(hostId, meta?.agent ?: "", it) },
                 onMode = { chat.setMode(it) },
                 onSend = { send(input) },
                 onStop = { chat.interrupt() },
+                canCompact = mirror != null || state.commands.any { it.name == "compact" },
+                onCompact = { send("/compact") },
             )
         },
     ) { pad ->
@@ -1834,6 +1905,8 @@ internal fun Composer(
     onMode: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    canCompact: Boolean = false,
+    onCompact: () -> Unit = {},
 ) {
     val slash = remember(text, state.commands) {
         if (text.startsWith("/") && !text.contains(' ') && !text.contains('\n')) {
@@ -1849,13 +1922,7 @@ internal fun Composer(
                     PickerChip(Icons.Rounded.AutoAwesome, modelLabel(model, models), models, model, onModel)
                 }
                 if (modes.isNotEmpty()) PickerChip(Icons.Rounded.Tune, modeLabel(mode).let { l -> modes.firstOrNull { it.id == mode }?.name ?: l }, modes, mode, onMode)
-                if (state.contextSize > 0) {
-                    val p = state.contextUsed * 100.0 / state.contextSize
-                    Text(
-                        stringResource(R.string.agent_context, p.toInt()), style = MaterialTheme.typography.labelMedium,
-                        color = usageColor(p), modifier = Modifier.padding(horizontal = 6.dp),
-                    )
-                }
+                if (state.contextUsed > 0) ContextChip(state.contextUsed, state.contextSize, canCompact && !state.working, onCompact)
             }
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.Bottom) {
@@ -1881,6 +1948,62 @@ internal fun Composer(
                         if (canSend) Palette.Accent else Palette.SurfaceHighest, onSend, enabled = canSend,
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Pemakaian konteks sebagai cincin kecil; ketuk untuk rincian dan ringkas (/compact). */
+@Composable
+private fun ContextChip(used: Long, size: Long, canCompact: Boolean, onCompact: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val p = if (size > 0) (used * 100.0 / size).coerceIn(0.0, 100.0) else null
+    val color = if (p != null) usageColor(p) else Palette.TextDim
+    val sweep by animateFloatAsState(((p ?: 0.0) / 100).toFloat(), tween(600), label = "ctx")
+    Box {
+        Surface(
+            onClick = { open = true }, shape = RoundedCornerShape(10.dp), color = Palette.SurfaceHigh,
+            modifier = Modifier.semantics { contentDescription = "context" },
+        ) {
+            Row(Modifier.padding(start = 6.dp, end = 9.dp, top = 5.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                        val st = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                        drawArc(color.copy(alpha = 0.22f), 0f, 360f, false, style = st)
+                        drawArc(color, -90f, 360f * sweep, false, style = st)
+                    }
+                    Icon(Icons.Rounded.Memory, null, tint = color, modifier = Modifier.size(11.dp))
+                }
+                Spacer(Modifier.width(5.dp))
+                Text(if (p != null) "${p.toInt()}%" else formatTokens(used), style = MaterialTheme.typography.labelMedium, color = color)
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).widthIn(min = 200.dp)) {
+                Text(stringResource(R.string.agent_ctx_title), style = MaterialTheme.typography.titleSmall, color = Palette.Text)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (size > 0) stringResource(R.string.agent_ctx_detail, formatTokens(used), formatTokens(size), p!!.toInt())
+                    else stringResource(R.string.agent_ctx_used, formatTokens(used)),
+                    style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+                )
+                if (p != null) {
+                    Spacer(Modifier.height(8.dp))
+                    UsageBar((p / 100).toFloat(), color)
+                }
+            }
+            if (canCompact) {
+                HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Palette.SurfaceHighest)
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(stringResource(R.string.agent_ctx_compact))
+                            Text(stringResource(R.string.agent_ctx_compact_sub), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.Compress, null, tint = Palette.Accent) },
+                    onClick = { open = false; onCompact() },
+                )
             }
         }
     }

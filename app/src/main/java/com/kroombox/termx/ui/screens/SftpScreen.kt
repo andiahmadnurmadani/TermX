@@ -441,7 +441,7 @@ fun SftpScreen(nav: Nav, hostId: String, initialPath: String?, sessionId: String
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Breadcrumb(ctl.path) { ctl.cd(it) }
-            if (ctl.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (ctl.loading) com.kroombox.termx.ui.components.FlowBar(Modifier.fillMaxWidth())
             ctl.transfer?.let { t ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
                     Text(

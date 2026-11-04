@@ -3,6 +3,26 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.6] - 2026-11-04
+
+### Added
+- Hermes setup wizard: pick a provider, paste the API key, and choose a model from the app. The setup uses Hermes' own config API on the server; the key travels over stdin and is never sent back.
+- Context usage is now a ring icon. Tap it for token details and a one-tap "Compact conversation".
+- Claude sessions followed from tmux/herdr can switch models (sent as `/model`).
+- Host cards show the logos of agents running on connected hosts. Tailscale hosts get the Tailscale logo, and the redundant OS label is gone.
+- New loading animations: a radar scan with real agent logos while detecting agents, and a flowing bar in place of plain progress bars.
+- Always-visible arrow keys in the terminal key bar. They fire on touch, with haptic feedback and auto-repeat while held.
+- Real Google Antigravity logo.
+
+### Changed
+- Reopening a conversation shows it instantly at the latest message, with no loading screen.
+- Autocomplete suggestions float over the terminal, away from the cursor line, instead of taking a fixed empty strip.
+- Conversations started from TermX appear under "Running on server".
+
+### Fixed
+- Deleted conversations no longer come back. Delete removes the row immediately, waits for the worker to stop (force-killing it if needed), and reports an error if the folder can't be removed.
+- Changing the mode in a mirrored session no longer types it as a model.
+
 ## [0.10.5] - 2026-11-04
 
 ### Changed
