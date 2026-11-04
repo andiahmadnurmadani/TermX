@@ -3,6 +3,12 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.10] - 2026-11-04
+
+### Added
+- Agents started in a plain terminal (outside tmux or herdr) can now receive messages from TermX. Claude Code and Codex run as usual in that terminal through a small relay, and anything you send from the phone is typed into that terminal.
+- The first time you message a plain-terminal session, TermX adds a short `claude`/`codex` shell function to `~/.bashrc` or `~/.zshrc`, between `# >>> termx >>>` markers. Delete the block to turn it off. A session that was already running needs one restart in a new terminal, for example `claude --resume <id>`, and the chat follows it.
+
 ## [0.10.9] - 2026-11-04
 
 ### Changed

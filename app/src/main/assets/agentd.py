@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 10
+VERSION = 11
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -45,6 +45,7 @@ def env_path():
     return os.pathsep.join(parts + [os.environ.get("PATH", "")])
 
 
+ORIG_PATH = os.environ.get("PATH", "")  # PATH asli pengguna, untuk agent yang dijalankan lewat `wrap`
 os.environ["PATH"] = env_path()
 
 
@@ -1619,6 +1620,9 @@ def _running():
             q = procs.get(cur)
             if q is None:
                 break
+            if any("agentd.py" in a for a in q["argv"][:3]) and "wrap" in q["argv"][:4]:
+                where, info = "pty", {"sock": _pty_sock(pid)}  # terminal biasa lewat pembungkus pty TermX
+                break
             if cur == me or any("agentd.py" in a for a in q["argv"][:3]):
                 where = "termx"   # dijalankan TermX: tampil bila milik worker chat, selain itu (mis. cek kuota) diabaikan
                 argv = q["argv"]
@@ -1649,7 +1653,8 @@ def _running():
             tty = ""
         found.append({"agent": agent, "pid": pid, "cwd": cwd, "started": p["start"], "where": where, "owner": owner,
                       "tty": tty.replace("/dev/", ""), "session": _session_arg(p["argv"]), **(
-                          {"tmux": info, "title": info.get("title", "")} if where == "tmux" else {})})
+                          {"tmux": info, "title": info.get("title", "")} if where == "tmux" else
+                          {"pty": info} if where == "pty" else {})})
 
     # herdr melaporkan agent-nya sendiri (status, judul, id pane) — lebih akurat dari pindaian proses.
     out = [f for f in found if f["where"] != "herdr"]
@@ -2008,7 +2013,8 @@ def cmd_mirror(args):
             m = read_meta(keep) or m
             mi = dict(m.get("mirror") or {})
             mi.update(where=f["where"], pid=f["pid"], herdr_pane=(f.get("herdr") or {}).get("pane", ""),
-                      tmux="=%s:%s.%s" % (t["session"], t["window"], t["pane"]) if t else "", place=_place(f))
+                      tmux="=%s:%s.%s" % (t["session"], t["window"], t["pane"]) if t else "", place=_place(f),
+                      pty=(f.get("pty") or {}).get("sock", ""))
             if herdr_bin:
                 mi["herdr_bin"] = herdr_bin
             if tr and tr != mi.get("transcript") and m.get("session", "") != sid:
@@ -2027,7 +2033,7 @@ def cmd_mirror(args):
         return
     mi = {"where": f["where"], "pid": f["pid"], "herdr_pane": (f.get("herdr") or {}).get("pane", ""),
           "herdr_bin": herdr_bin or "", "tmux": "=%s:%s.%s" % (t["session"], t["window"], t["pane"]) if t else "",
-          "place": _place(f), "transcript": tr, "offset": 0, "full": True}
+          "place": _place(f), "pty": (f.get("pty") or {}).get("sock", ""), "transcript": tr, "offset": 0, "full": True}
     events, mi["offset"] = _import_history(f["agent"], tr)
     cid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     os.makedirs(chat_dir(cid), mode=0o700)
@@ -2091,13 +2097,15 @@ class MirrorAdapter:
         return False
 
     def _interactive(self):
-        return self.mi.get("where") in ("tmux", "herdr") and not self.gone
+        return self.mi.get("where") in ("tmux", "herdr", "pty") and not self.gone
 
     def _keys(self, *keys):
         """Tombol dengan nama netral: enter, down, esc, atau satu karakter."""
         if self.mi.get("where") == "herdr":
             subprocess.run([self.mi.get("herdr_bin") or "herdr", "agent", "send-keys", self.mi["herdr_pane"], *keys],
                            capture_output=True, timeout=5)
+        elif self.mi.get("where") == "pty":
+            _pty_send(self.mi.get("pty"), {"keys": list(keys)})
         else:
             names = {"enter": "Enter", "down": "Down", "up": "Up", "esc": "Escape"}
             for k in keys:
@@ -2110,6 +2118,8 @@ class MirrorAdapter:
                                capture_output=True, text=True, timeout=15)
             if r.returncode != 0:
                 raise RuntimeError((r.stderr or r.stdout or "herdr prompt failed").strip()[:300])
+        elif self.mi.get("where") == "pty":
+            _pty_send(self.mi.get("pty"), {"text": text})
         else:
             subprocess.run(["tmux", "load-buffer", "-b", "termx", "-"], input=text.encode(), capture_output=True, timeout=5, check=True)
             subprocess.run(["tmux", "paste-buffer", "-d", "-p", "-b", "termx", "-t", self.mi["tmux"]], capture_output=True, timeout=5, check=True)
@@ -2164,7 +2174,7 @@ class MirrorAdapter:
         """Ikuti proses agent f (pane yang sama atau sesi yang sama dibuka lagi)."""
         where, tgt = _pane_target(f)
         self.mi.update(where=where, pid=f.get("pid") or 0, herdr_pane=tgt if where == "herdr" else "",
-                       tmux=tgt if where == "tmux" else "", place=_place(f))
+                       tmux=tgt if where == "tmux" else "", pty=tgt if where == "pty" else "", place=_place(f))
         if herdr_bin:
             self.mi["herdr_bin"] = herdr_bin
         if self.mi.get("owned") and not tgt.startswith("=%s:" % self.mi["owned"]):
@@ -2181,7 +2191,7 @@ class MirrorAdapter:
         found, herdr_bin = _running()
         sess = self.w.meta.get("session") or ""
         mine = ("herdr", self.mi.get("herdr_pane")) if self.mi.get("where") == "herdr" else ("tmux", self.mi.get("tmux"))
-        cands = [f for f in found if f["agent"] == self.agent and f["where"] in ("tmux", "herdr")]
+        cands = [f for f in found if f["agent"] == self.agent and f["where"] in ("tmux", "herdr", "pty")]
         f = next((f for f in cands if sess and f.get("session") == sess), None) \
             or next((f for f in cands if mine[1] and _pane_target(f) == mine), None)
         if f is None:
@@ -2209,7 +2219,19 @@ class MirrorAdapter:
         if not binp:
             raise RuntimeError("agent not found: " + self.agent)
         if self.mi.get("where") == "other" and self.mi.get("pid") and _proc_is(self.mi["pid"], self.agent):
-            raise RuntimeError("This session runs in a plain terminal, so TermX can't type into it. Run it inside tmux or herdr.")
+            # Terminal biasa yang dibuka sebelum TermX bisa mengetik ke dalamnya: siapkan shell untuk berikutnya.
+            try:
+                files = _shell_setup()
+            except Exception:
+                files = []
+            how = ("TermX has set up %s so agents you start in a new terminal also receive messages from TermX. "
+                   % " and ".join(files)) if files else ""
+            raise RuntimeError(
+                "This session was started in a plain terminal before TermX could type into it. %s"
+                "Exit it there, open a new terminal and run: %s --resume %s — this chat will follow it."
+                % (how, self.agent, self.w.meta.get("session") or "<session>") if self.agent in RESUME_ARGS and self.agent != "codex"
+                else "This session was started in a plain terminal before TermX could type into it. %s"
+                     "Exit it there and start it again in a new terminal." % how)
         cwd = self.w.meta.get("cwd") or os.path.expanduser("~")
         where = self.mi.get("where")
         if where == "herdr" and self.mi.get("herdr_pane") and self._reopen_herdr(args):
@@ -2491,6 +2513,8 @@ def _pane_target(f):
         return "tmux", "=%s:%s.%s" % (t["session"], t["window"], t["pane"])
     if f.get("where") == "herdr":
         return "herdr", (f.get("herdr") or {}).get("pane", "")
+    if f.get("where") == "pty":
+        return "pty", (f.get("pty") or {}).get("sock", "")
     return "", ""
 
 
@@ -2525,6 +2549,228 @@ def _new_in_tmux(agent, cwd, model, mode, extra=()):
     mi = {"where": "tmux", "pid": pid, "herdr_pane": "", "herdr_bin": "", "tmux": "=%s:0.0" % name,
           "place": "tmux " + name, "transcript": "", "offset": 0, "owned": name}
     return mi
+
+
+# ------------------------------------------------------------------ terminal biasa: pembungkus pty
+# Agent di terminal biasa (bukan tmux/herdr) tidak bisa diketik dari luar (TIOCSTI dimatikan kernel).
+# `agentd.py wrap claude …` menjalankan agent seperti biasa di terminal itu lewat pty perantara yang juga
+# menerima ketikan dari TermX melalui soket ~/.termx/pty/<pid>.sock. Fungsi shell di bawah memasangnya otomatis.
+
+PTY_DIR = os.path.expanduser("~/.termx/pty")
+WRAP_AGENTS = ("claude", "codex")
+SHELL_BEGIN, SHELL_END = "# >>> termx >>>", "# <<< termx <<<"
+
+
+def _pty_sock(pid):
+    return os.path.join(PTY_DIR, "%d.sock" % pid)
+
+
+def _pty_send(sock, msg):
+    if not sock:
+        raise RuntimeError("no terminal to type into")
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.settimeout(10)
+    try:
+        c.connect(sock)
+        c.sendall((jdump(msg) + "\n").encode())
+        reply = c.recv(256).decode("utf-8", "replace").strip()
+    finally:
+        c.close()
+    if reply != "ok":
+        raise RuntimeError(reply or "the terminal did not answer")
+
+
+PTY_KEYS = {"enter": b"\r", "down": b"\x1b[B", "up": b"\x1b[A", "esc": b"\x1b", "tab": b"\t"}
+
+
+def _write_all(fd, data):
+    while data:
+        try:
+            n = os.write(fd, data)
+        except InterruptedError:
+            continue
+        data = data[n:]
+
+
+def cmd_wrap(args):
+    """wrap <agent> [argumen…]: jalankan agent di terminal ini apa adanya, plus terima ketikan dari TermX."""
+    if not args:
+        raise SystemExit("usage: agentd.py wrap <agent> [args...]")
+    os.environ["PATH"] = ORIG_PATH
+    binp = shutil.which(args[0], path=ORIG_PATH) or shutil.which(args[0]) or args[0]
+    argv = [binp] + args[1:]
+    if (not os.isatty(0) or not os.isatty(1) or os.environ.get("TERMX_WRAPPED")
+            or os.environ.get("TMUX") or os.environ.get("HERDR_PANE_ID")):
+        os.execv(binp, argv)  # tmux/herdr sudah bisa diketik TermX; bukan terminal: jalankan langsung
+    import fcntl
+    import pty
+    import select
+    import termios
+    import tty
+    os.environ["TERMX_WRAPPED"] = "1"
+    pid, fd = pty.fork()
+    if pid == 0:
+        try:
+            os.execv(binp, argv)
+        except OSError as e:
+            os.write(2, ("%s: %s\r\n" % (args[0], e)).encode())
+        os._exit(127)
+    srv = None
+    sp = _pty_sock(pid)
+    try:
+        os.makedirs(PTY_DIR, mode=0o700, exist_ok=True)
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if os.path.exists(sp):
+            os.unlink(sp)
+        srv.bind(sp)
+        os.chmod(sp, 0o600)
+        srv.listen(4)
+    except OSError:
+        srv = None  # tanpa soket agent tetap berjalan normal, hanya tidak bisa diketik dari TermX
+
+    def resize(*_):
+        try:
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, fcntl.ioctl(0, termios.TIOCGWINSZ, b"\0" * 8))
+        except OSError:
+            pass
+
+    resize()
+    signal.signal(signal.SIGWINCH, resize)
+    saved = termios.tcgetattr(0)
+    tty.setraw(0)
+    conns, paste, stdin_open = {}, False, True
+    try:
+        while True:
+            watch = [fd] + ([0] if stdin_open else []) + ([srv] if srv else []) + list(conns)
+            try:
+                ready = select.select(watch, [], [], 30)[0]
+            except InterruptedError:
+                continue
+            if fd in ready:
+                try:
+                    data = os.read(fd, 65536)
+                except OSError:
+                    data = b""
+                if not data:
+                    break
+                if b"\x1b[?2004" in data:  # mode bracketed paste dinyalakan/dimatikan oleh agent
+                    paste = data.rfind(b"\x1b[?2004h") > data.rfind(b"\x1b[?2004l")
+                _write_all(1, data)
+            if 0 in ready:
+                data = os.read(0, 65536)
+                if data:
+                    _write_all(fd, data)
+                else:
+                    stdin_open = False
+            if srv is not None and srv in ready:
+                c, _ = srv.accept()
+                c.settimeout(5)
+                conns[c] = b""
+            for c in [c for c in ready if c in conns]:
+                try:
+                    chunk = c.recv(65536)
+                except OSError:
+                    chunk = b""
+                buf = conns[c] + chunk
+                if b"\n" not in buf and chunk:
+                    conns[c] = buf
+                    continue
+                del conns[c]
+                reply = "ok"
+                try:
+                    msg = json.loads(buf.split(b"\n", 1)[0].decode("utf-8") or "{}")
+                    if msg.get("text") is not None:
+                        t = str(msg["text"]).replace("\r\n", "\n").encode("utf-8")
+                        _write_all(fd, b"\x1b[200~" + t + b"\x1b[201~" if paste else t.replace(b"\n", b" "))
+                        time.sleep(0.25)
+                        _write_all(fd, b"\r")
+                    for k in msg.get("keys") or []:
+                        _write_all(fd, PTY_KEYS.get(k) or str(k).encode("utf-8")[:8])
+                        time.sleep(0.08)
+                except Exception as e:
+                    reply = "error: %s" % e
+                try:
+                    c.sendall((reply + "\n").encode())
+                except OSError:
+                    pass
+                c.close()
+    finally:
+        termios.tcsetattr(0, termios.TCSAFLUSH, saved)
+        if srv is not None:
+            srv.close()
+            try:
+                os.unlink(sp)
+            except OSError:
+                pass
+    _, st = os.waitpid(pid, 0)
+    sys.exit(os.waitstatus_to_exitcode(st) if hasattr(os, "waitstatus_to_exitcode") else (st >> 8))
+
+
+def _shell_block():
+    lines = [SHELL_BEGIN,
+             "# TermX: agents started in this terminal also receive messages typed in the TermX app.",
+             "# Delete this block to turn it off.",
+             'if [ -f "$HOME/.termx/agentd.py" ] && command -v python3 >/dev/null 2>&1; then']
+    for a in WRAP_AGENTS:
+        lines.append('  command -v %s >/dev/null 2>&1 && function %s { command python3 "$HOME/.termx/agentd.py" wrap %s "$@"; }'
+                     % (a, a, a))
+    lines += ["fi", SHELL_END]
+    return "\n".join(lines) + "\n"
+
+
+def _shell_rcs():
+    try:
+        import pwd
+        shell = os.path.basename(pwd.getpwuid(os.getuid()).pw_shell or "")
+    except Exception:
+        shell = os.path.basename(os.environ.get("SHELL", ""))
+    rcs = [f for f in ("~/.bashrc", "~/.zshrc") if os.path.exists(os.path.expanduser(f))]
+    want = {"zsh": "~/.zshrc", "bash": "~/.bashrc"}.get(shell)
+    if want and want not in rcs:
+        rcs.append(want)
+    return rcs
+
+
+def _shell_setup(remove=False):
+    """Pasang (atau lepas) blok fungsi shell TermX di ~/.bashrc / ~/.zshrc; kembalikan berkas yang berisi blok."""
+    done = []
+    pat = re.compile(r"\n?" + re.escape(SHELL_BEGIN) + r".*?" + re.escape(SHELL_END) + r"\n?", re.S)
+    for f in _shell_rcs():
+        p = os.path.expanduser(f)
+        try:
+            with open(p, encoding="utf-8") as fh:
+                cur = fh.read()
+        except FileNotFoundError:
+            cur = ""
+        new = pat.sub("\n", cur).rstrip("\n") + "\n" if SHELL_BEGIN in cur else cur
+        if not remove:
+            new = (new.rstrip("\n") + "\n\n" if new.strip() else "") + _shell_block()
+        if new != cur:
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(new)
+        if not remove:
+            done.append(f)
+    return done
+
+
+def cmd_shell_setup(args):
+    # shell-setup [status|install|remove]
+    op = args[0] if args else "status"
+    if op == "install":
+        print(jdump({"files": _shell_setup()}))
+    elif op == "remove":
+        _shell_setup(remove=True)
+        print(jdump({"files": []}))
+    else:
+        on = []
+        for f in _shell_rcs():
+            try:
+                with open(os.path.expanduser(f), encoding="utf-8") as fh:
+                    if SHELL_BEGIN in fh.read():
+                        on.append(f)
+            except OSError:
+                pass
+        print(jdump({"files": on}))
 
 
 # ------------------------------------------------------------------ pemakaian & akun per provider
@@ -2948,7 +3194,7 @@ def cmd_hermes_setup(args):
 COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
-    "hermes-setup": cmd_hermes_setup,
+    "hermes-setup": cmd_hermes_setup, "wrap": cmd_wrap, "shell-setup": cmd_shell_setup,
 }
 
 
