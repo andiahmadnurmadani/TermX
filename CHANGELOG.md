@@ -3,6 +3,29 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.4] - 2026-11-04
+
+### Added
+- A "jump to latest message" button in agent chats. It appears once you scroll up and takes you straight back to
+  the newest message.
+- A sound when every prompt finishes. If you're watching the chat, the phone plays the notification tone. Otherwise
+  you get a notification with sound that names the chat. Approval requests still notify as before.
+- Antigravity CLI (`agy`) in the agent list. It runs in a terminal (tmux) and is shown in TermX like other
+  terminal agents.
+- Markdown preview for `.md` files in the file editor. It opens in preview for existing files, and you can switch
+  to editing with one tap.
+
+### Changed
+- Opening a running session now loads its whole conversation from the agent's transcript, not just the last part.
+  Long tool output in older turns is shortened so the history arrives quickly. Sessions opened before this version
+  are imported again in full the next time you open them.
+- The AI agents screen loads faster. Agent versions are cached on the server per binary, so detection drops from
+  seconds to about 0.1 s. Accounts and usage appear immediately from the last result and refresh in the background.
+- The agent list now covers Claude Code, opencode, Hermes Agent and Antigravity.
+- Better Markdown rendering: real table grids with column alignment, task-list checkboxes, nested bullets, quotes
+  with formatting, headings with dividers, escaped characters, `<br>`, images shown as links, and YAML front
+  matter shown as a code block.
+
 ## [0.10.3] - 2026-11-04
 
 ### Added

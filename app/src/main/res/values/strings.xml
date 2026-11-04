@@ -36,6 +36,8 @@
     <string name="editor_read_denied">Read permission denied. This file may be owned by root.</string>
     <string name="editor_redo">Redo</string>
     <string name="editor_reload">Reload from server</string>
+    <string name="editor_md_preview">Preview Markdown</string>
+    <string name="editor_md_edit">Edit text</string>
     <string name="editor_replace">Replace</string>
     <string name="editor_replace_all">All</string>
     <string name="editor_replace_with">Replace with</string>
@@ -641,7 +643,7 @@
     <string name="agent_bad_reply">Unexpected reply from the server</string>
     <string name="agent_notif_title">AI agent</string>
     <string name="agent_notif_permission">Needs your approval: %1$s</string>
-    <string name="agent_notif_done">Finished</string>
+    <string name="agent_notif_done">Finished — ready for your next prompt</string>
     <string name="agent_notif_failed">Stopped with an error</string>
     <string name="agent_channel_name">AI agents</string>
     <string name="agent_channel_desc">Approvals and finished tasks from AI agents</string>
@@ -660,6 +662,7 @@
     <string name="agent_mirror_live">Live from %1$s · your messages are typed into that session</string>
     <string name="agent_mirror_other">Running in %1$s · sending a message continues it here in TermX</string>
     <string name="agent_screen_title">Agent screen</string>
+    <string name="agent_jump_latest">Jump to latest message</string>
     <string name="agent_usage_section">Usage and accounts</string>
     <string name="agent_usage_loading">Checking accounts on the server…</string>
     <string name="agent_usage_unreported">%1$s don\'t report usage to TermX.</string>

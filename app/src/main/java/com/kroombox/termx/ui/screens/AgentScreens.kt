@@ -4,6 +4,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.KeyboardDoubleArrowDown
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.animation.AnimatedVisibility
@@ -289,7 +296,11 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                 chats = c.await()
                 running = r.await()
             }
-            launch { runCatching { usage = mgr.usage(hostId) } }
+            // Akun & kuota: hasil tersimpan dulu (seketika), lalu yang segar di latar.
+            launch {
+                if (usage == null) runCatching { usage = mgr.usage(hostId, cached = true) }
+                runCatching { usage = mgr.usage(hostId) }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -737,6 +748,7 @@ internal fun FlowAgents(chat: List<AgentInfo>, term: List<AgentInfo>, onTap: (Ag
 private fun agentColor(id: String): Color = when (id) {
     "claude" -> Color(0xFFD97757)
     "codex", "opencode", "goose" -> Color(0xFFE6EDF3)
+    "antigravity" -> Color(0xFF4F8DF7)
     "hermes" -> Color(0xFFF2C14E)
     "gemini" -> Color(0xFF8AB4F8)
     "qwen" -> Color(0xFF8B7BFF)
@@ -1251,8 +1263,10 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                 ChatEmpty(agent?.name ?: meta?.agent ?: "", cwd, meta?.agent, Modifier.weight(1f)) { send(it) }
             } else {
                 val reversed = remember(state.items) { state.items.asReversed() }
+                val showJump by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 } }
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(
-                    Modifier.weight(1f).fillMaxWidth(),
+                    Modifier.fillMaxSize(),
                     state = listState,
                     reverseLayout = true,
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
@@ -1266,6 +1280,25 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                             onLogin = if (agent != null) ({ openTerminal(true) }) else null,
                         )
                     }
+                }
+                // Langsung ke pesan terbaru tanpa menggulir manual.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showJump,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 14.dp),
+                    enter = fadeIn() + scaleIn(initialScale = 0.8f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.8f),
+                ) {
+                    SmallFloatingActionButton(
+                        onClick = {
+                            scope.launch {
+                                if (listState.firstVisibleItemIndex > 40) listState.scrollToItem(6)
+                                listState.animateScrollToItem(0)
+                            }
+                        },
+                        containerColor = Palette.SurfaceHighest,
+                        contentColor = Palette.Text,
+                    ) { Icon(Icons.Rounded.KeyboardDoubleArrowDown, stringResource(R.string.agent_jump_latest)) }
+                }
                 }
             }
         }

@@ -35,6 +35,8 @@
     <string name="editor_read_denied">Izin baca ditolak. File ini mungkin milik root.</string>
     <string name="editor_redo">Redo</string>
     <string name="editor_reload">Muat ulang dari server</string>
+    <string name="editor_md_preview">Pratinjau Markdown</string>
+    <string name="editor_md_edit">Ubah teks</string>
     <string name="editor_replace">Ganti</string>
     <string name="editor_replace_all">Semua</string>
     <string name="editor_replace_with">Ganti dengan</string>
@@ -640,7 +642,7 @@
     <string name="agent_bad_reply">Balasan server tidak dikenali</string>
     <string name="agent_notif_title">AI agent</string>
     <string name="agent_notif_permission">Butuh persetujuan: %1$s</string>
-    <string name="agent_notif_done">Selesai</string>
+    <string name="agent_notif_done">Selesai, siap untuk prompt berikutnya</string>
     <string name="agent_notif_failed">Berhenti karena error</string>
     <string name="agent_channel_name">AI agent</string>
     <string name="agent_channel_desc">Permintaan izin dan tugas selesai dari AI agent</string>
@@ -659,6 +661,7 @@
     <string name="agent_mirror_live">Live dari %1$s · pesan Anda diketik ke sesi itu</string>
     <string name="agent_mirror_other">Berjalan di %1$s · mengirim pesan akan melanjutkannya di TermX</string>
     <string name="agent_screen_title">Layar agent</string>
+    <string name="agent_jump_latest">Ke pesan terbaru</string>
     <string name="agent_usage_section">Pemakaian dan akun</string>
     <string name="agent_usage_loading">Memeriksa akun di server…</string>
     <string name="agent_usage_unreported">%1$s tidak melaporkan pemakaian ke TermX.</string>

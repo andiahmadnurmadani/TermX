@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 4
+VERSION = 5
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -88,33 +88,69 @@ CATALOG = [
     {"id": "claude", "name": "Claude Code", "bins": ["claude"],
      "models": ["opus", "sonnet", "haiku", "fable"],
      "modes": ["manual", "acceptEdits", "plan", "auto"], "login": "claude  →  /login", "login_cmd": "{bin}", "resume_cmd": "{bin} --resume {session}"},
-    {"id": "codex", "name": "Codex", "bins": ["codex"],
-     "models": [], "modes": ["workspace-write", "read-only"], "login": "codex login", "login_cmd": "{bin} login", "resume_cmd": "{bin} resume {session}"},
     {"id": "opencode", "name": "opencode", "bins": ["opencode"],
      "models": [], "modes": [], "login": "opencode auth login", "login_cmd": "{bin} auth login", "resume_cmd": "{bin} --session {session}"},
     {"id": "hermes", "name": "Hermes Agent", "bins": ["hermes"],
      "models": [], "modes": [], "login": "hermes setup", "login_cmd": "{bin} setup", "resume_cmd": "{bin}"},
-    {"id": "pi", "name": "pi", "bins": ["pi"],
-     "models": [], "modes": [], "login": "pi  →  /login", "login_cmd": "{bin}", "resume_cmd": "{bin} --session {session}"},
-    {"id": "omp", "name": "oh-my-pi", "bins": ["omp"],
-     "models": [], "modes": [], "login": "omp  →  /login", "login_cmd": "{bin}", "resume_cmd": "{bin} --session {session}"},
-    {"id": "gemini", "name": "Gemini CLI", "bins": ["gemini"], "models": [], "modes": [], "login": "gemini"},
-    {"id": "qwen", "name": "Qwen Code", "bins": ["qwen"], "models": [], "modes": [], "login": "qwen"},
-    {"id": "aider", "name": "Aider", "bins": ["aider"], "models": [], "modes": [], "login": "aider"},
-    {"id": "goose", "name": "Goose", "bins": ["goose"], "models": [], "modes": [], "login": "goose configure"},
-    {"id": "crush", "name": "Crush", "bins": ["crush"], "models": [], "modes": [], "login": "crush"},
+    # Antigravity CLI (Google): binary "agy", dijalankan di terminal (tmux) lalu dicerminkan.
+    {"id": "antigravity", "name": "Antigravity", "bins": ["agy"],
+     "models": [], "modes": [], "login": "agy", "login_cmd": "{bin}", "resume_cmd": "{bin}"},
 ]
 
 
+DETECT_CACHE = os.path.expanduser("~/.termx/versions.json")
+USAGE_CACHE = os.path.expanduser("~/.termx/usage.json")
+
+
+def _load_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _save_json(path, obj):
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(jdump(obj))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def cmd_detect(_args):
+    # "--version" tiap agent bisa makan detik: hasilnya disimpan per (path, mtime) binary.
+    cache = _load_json(DETECT_CACHE) or {}
+    bins = [(a, first_bin(*a["bins"])) for a in CATALOG]
+    bins = [(a, p) for a, p in bins if p]
+    vers, todo = {}, []
+    for a, p in bins:
+        try:
+            key = "%s|%d" % (os.path.realpath(p), int(os.path.getmtime(os.path.realpath(p))))
+        except OSError:
+            key = p
+        if key in cache:
+            vers[p] = cache[key]
+        else:
+            todo.append((p, key))
+
+    def ver(p, key):
+        vers[p] = cache[key] = version_of(p)
+
+    ths = [threading.Thread(target=ver, args=t, daemon=True) for t in todo]
+    for t in ths:
+        t.start()
+    for t in ths:
+        t.join(20)
+    if todo:
+        _save_json(DETECT_CACHE, cache)
     found = []
-    for a in CATALOG:
-        p = first_bin(*a["bins"])
-        if not p:
-            continue
+    for a, p in bins:
         kind = "chat" if a["id"] in ADAPTERS else "terminal"
         found.append({
-            "id": a["id"], "name": a["name"], "bin": p, "version": version_of(p), "kind": kind,
+            "id": a["id"], "name": a["name"], "bin": p, "version": vers.get(p, ""), "kind": kind,
             "models": a["models"], "modes": a["modes"], "login": a["login"],
             "login_cmd": a.get("login_cmd", "{bin}").replace("{bin}", p),
             "resume_cmd": a.get("resume_cmd", "{bin}").replace("{bin}", p),
@@ -161,7 +197,7 @@ def cmd_list(_args):
     if os.path.isdir(ROOT):
         for cid in os.listdir(ROOT):
             m = read_meta(cid)
-            if m:
+            if m and not m.get("superseded"):
                 m["alive"] = worker_alive(cid)
                 out.append(m)
     out.sort(key=lambda m: m.get("updated", 0), reverse=True)
@@ -1532,8 +1568,8 @@ def _running():
 # Sesi agent yang berjalan di luar TermX ditampilkan sebagai chat: riwayat dibaca dari transkrip agent
 # (Claude Code, Codex), pesan diketik ke pane tmux/herdr-nya. Prosesnya tidak pernah dihentikan TermX.
 
-IMPORT_BYTES = 3 * 1024 * 1024    # riwayat awal: bagian akhir transkrip
-IMPORT_EVENTS = 600
+IMPORT_BYTES = 1024 * 1024 * 1024  # riwayat awal: seluruh transkrip (batas aman untuk file raksasa)
+IMPORT_EVENTS = 40000
 BLOCKED_RE = re.compile(r"Do you want to|Would you like to|Allow (this|once|always)|\(y/n\)|\[y/N\]|❯ ?1\. Yes|Yes, proceed|"
                         r"Press enter to confirm|Enter to confirm|trust this folder", re.I)
 MENU_MARK = ("❯", "›", "▶", "→")
@@ -1750,31 +1786,49 @@ def _herdr_status(mi):
         return "", False
 
 
+IMPORT_CLIP = 1500                # riwayat lama: output/isi tool dipersingkat agar cepat sampai ke HP
+
+
+def _slim(e):
+    t = e.get("t")
+    if t == "tool_result" and isinstance(e.get("out"), str):
+        e["out"] = clip(e["out"], IMPORT_CLIP)
+    elif t == "tool" and isinstance(e.get("input"), dict):
+        e["input"] = {k: clip(v, IMPORT_CLIP) if isinstance(v, str) else v for k, v in e["input"].items()}
+    return e
+
+
 def _import_history(agent, path):
-    """Event dari bagian akhir transkrip + offset byte setelah baris lengkap terakhir."""
+    """Seluruh riwayat transkrip (dibaca per baris) + offset byte setelah baris lengkap terakhir.
+    Untuk transkrip raksasa hanya IMPORT_BYTES terakhir yang dibaca, dan paling banyak IMPORT_EVENTS event."""
     if not path or not os.path.exists(path):
         return [], 0
+    import collections
     size = os.path.getsize(path)
     start = max(0, size - IMPORT_BYTES)
+    conv = TranscriptConverter(agent)
+    groups, count, pos = collections.deque(), 0, start
     with open(path, "rb") as f:
         f.seek(start)
-        data = f.read()
-    end = data.rfind(b"\n") + 1
-    data = data[:end]
-    if start > 0:
-        data = data[data.find(b"\n") + 1:]
-    conv = TranscriptConverter(agent)
-    groups = [conv.convert(l) for l in data.decode("utf-8", "replace").splitlines() if l.strip()]
-    out, count = [], 0
-    for g in reversed(groups):
-        if count + len(g) > IMPORT_EVENTS and count:
-            break
-        out.append(g)
-        count += len(g)
-    events = [e for g in reversed(out) for e in g if e.get("t") != "status"]
+        if start > 0:
+            pos += len(f.readline())   # baris pertama terpotong
+        for raw in f:
+            if not raw.endswith(b"\n"):
+                break                  # baris terakhir belum lengkap: dibaca live nanti
+            pos += len(raw)
+            if not raw.strip():
+                continue
+            g = [_slim(e) for e in conv.convert(raw.decode("utf-8", "replace")) if e.get("t") != "status"]
+            if not g:
+                continue
+            groups.append(g)
+            count += len(g)
+            while count > IMPORT_EVENTS and len(groups) > 1:
+                count -= len(groups.popleft())
+    events = [e for g in groups for e in g]
     while events and events[0].get("t") in ("tool_result", "done"):  # buang potongan giliran yang terpotong
         events.pop(0)
-    return events, start + end
+    return events, pos
 
 
 def _place(f):
@@ -1796,18 +1850,21 @@ def cmd_mirror(args):
         raise SystemExit("this session is no longer running")
     sid, tr = transcript_of(f["agent"], f["pid"], f.get("session") or "", f["cwd"], f.get("started") or 0)
     key = (f["pid"], (f.get("herdr") or {}).get("pane", ""))
+    old = []
     if os.path.isdir(ROOT):
         for cid in os.listdir(ROOT):
             m = read_meta(cid) or {}
             mi = m.get("mirror") or {}
-            if mi and (mi.get("pid") or 0, mi.get("herdr_pane") or "") == key and m.get("session", "") == sid:
-                spawn_worker(cid)
-                print(jdump({"id": cid}))
-                return
+            if mi and not m.get("superseded") and (mi.get("pid") or 0, mi.get("herdr_pane") or "") == key and m.get("session", "") == sid:
+                if mi.get("full") or mi.get("owned"):
+                    spawn_worker(cid)
+                    print(jdump({"id": cid}))
+                    return
+                old.append(cid)   # impor lama (hanya bagian akhir): diganti impor penuh
     t = f.get("tmux") or {}
     mi = {"where": f["where"], "pid": f["pid"], "herdr_pane": (f.get("herdr") or {}).get("pane", ""),
           "herdr_bin": herdr_bin or "", "tmux": "=%s:%s.%s" % (t["session"], t["window"], t["pane"]) if t else "",
-          "place": _place(f), "transcript": tr, "offset": 0}
+          "place": _place(f), "transcript": tr, "offset": 0, "full": True}
     events, mi["offset"] = _import_history(f["agent"], tr)
     cid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     os.makedirs(chat_dir(cid), mode=0o700)
@@ -1822,6 +1879,16 @@ def cmd_mirror(args):
             e["n"], e["at"] = n, now_ms()
             fh.write(jdump(e) + "\n")
             n += 1
+    for o in old:
+        stop_worker(o)
+        for _ in range(30):
+            if not worker_alive(o):
+                break
+            time.sleep(0.1)
+        m = read_meta(o)
+        if m:
+            m["superseded"] = cid
+            write_meta(o, m)
     spawn_worker(cid)
     print(jdump({"id": cid}))
 
@@ -2225,7 +2292,7 @@ def _codex_usage(binp):
 
 def _opencode_usage(binp):
     stats = []
-    for line in _run_text([binp, "stats"], timeout=25).splitlines():
+    for line in _run_text([binp, "stats"], timeout=15).splitlines():
         m = re.match(r"^\s*│\s*(.+?)\s{2,}(\S.*?)\s*│\s*$", line)
         if m and m.group(1).strip() and not m.group(1).strip().isupper():
             stats.append([m.group(1).strip(), m.group(2).strip()])
@@ -2235,7 +2302,14 @@ def _opencode_usage(binp):
 USAGE_READERS = {"claude": _claude_usage, "codex": _codex_usage, "opencode": _opencode_usage}
 
 
-def cmd_usage(_args):
+def cmd_usage(args):
+    # "usage cached": hasil terakhir seketika (bisa basi; HP lalu meminta yang segar di latar).
+    if args and args[0] == "cached":
+        c = _load_json(USAGE_CACHE)
+        if c:
+            c["cached"] = True
+            print(jdump(c))
+            return
     totals = {}
     if os.path.isdir(ROOT):
         for cid in os.listdir(ROOT):
@@ -2262,14 +2336,16 @@ def cmd_usage(_args):
         th.start()
         threads.append(th)
     for th in threads:
-        th.join(30)
+        th.join(20)
     out = []
     for a, _p in agents:
         r = dict(results.get(a["id"]) or {})
         r.update({"agent": a["id"], "name": a["name"], "reported": a["id"] in USAGE_READERS,
                   **{k: round(v, 6) if isinstance(v, float) else v for k, v in (totals.get(a["id"]) or {}).items()}})
         out.append(r)
-    print(jdump({"providers": out, "at": now_ms()}))
+    res = {"providers": out, "at": now_ms()}
+    _save_json(USAGE_CACHE, res)
+    print(jdump(res))
 
 
 COMMANDS = {

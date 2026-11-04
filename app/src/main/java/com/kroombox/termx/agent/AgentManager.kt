@@ -151,7 +151,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
     /** Buka sesi yang berjalan sebagai chat (riwayat dari transkrip agent); mengembalikan id chat. */
     suspend fun mirror(hostId: String, r: RunningAgent): String = withContext(Dispatchers.IO) {
-        val id = run(hostId, "mirror ${r.pid} ${shq(r.herdrPane)}", timeoutSec = 40).str("id")
+        val id = run(hostId, "mirror ${r.pid} ${shq(r.herdrPane)}", timeoutSec = 90).str("id")
         runCatching { list(hostId) }
         id
     }
@@ -174,11 +174,11 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         }
 
     /** Pilihan terakhir "tampilkan juga di terminal" untuk agent ini (bawaan: aktif untuk Claude & Codex). */
-    fun lastInTerminal(agent: String): Boolean = prefs.getBoolean("term_$agent", agent == "claude" || agent == "codex")
+    fun lastInTerminal(agent: String): Boolean = prefs.getBoolean("term_$agent", agent == "claude")
 
     /** Akun & kuota tiap provider, dari perintah status resmi agent dan kejadian yang dilaporkannya. */
-    suspend fun usage(hostId: String): List<ProviderUsage> = withContext(Dispatchers.IO) {
-        val o = run(hostId, "usage", timeoutSec = 60)
+    suspend fun usage(hostId: String, cached: Boolean = false): List<ProviderUsage> = withContext(Dispatchers.IO) {
+        val o = run(hostId, if (cached) "usage cached" else "usage", timeoutSec = if (cached) 20 else 45)
         o.arr("providers")?.mapNotNull { e ->
             (e as? JsonObject)?.let { p ->
                 val a = p.obj("auth")
@@ -387,19 +387,38 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         fun interrupt() = write(buildJsonObject { put("c", "stop") })
 
         private fun maybeNotify(ev: JsonObject) {
-            if (visibleChat == chatId) return
             val t = ev.str("t")
+            if (t != "perm" && t != "done") return
             val seq = (ev["n"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return
             if (seq <= lastNotified) return
-            val text = when (t) {
-                "perm" -> S.get(R.string.agent_notif_permission, ev.str("tool"))
-                "done" -> if (ev.bool("ok") == false) S.get(R.string.agent_notif_failed) else S.get(R.string.agent_notif_done)
-                else -> return
-            }
             // Event lama yang diputar ulang saat sambung pertama tidak perlu notifikasi.
             if (System.currentTimeMillis() - ev.long("at") > 60_000) return
             lastNotified = seq
-            notify(chatId, text)
+            val watching = visibleChat == chatId && appInForeground()
+            if (t == "perm") {
+                if (!watching) notify(chatId, S.get(R.string.agent_notif_permission, ev.str("tool")))
+                return
+            }
+            // Tiap giliran selesai: bunyi; bila chat tidak sedang dilihat juga notifikasi.
+            val text = if (ev.bool("ok") == false) S.get(R.string.agent_notif_failed) else S.get(R.string.agent_notif_done)
+            if (watching) playDoneSound() else notify(chatId, text)
+        }
+    }
+
+    private fun appInForeground(): Boolean = runCatching {
+        val info = android.app.ActivityManager.RunningAppProcessInfo()
+        android.app.ActivityManager.getMyMemoryState(info)
+        info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+    }.getOrDefault(true)
+
+    private fun playDoneSound() {
+        runCatching {
+            val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION) ?: return
+            android.media.RingtoneManager.getRingtone(context, uri)?.apply {
+                audioAttributes = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+            }?.play()
         }
     }
 
@@ -407,9 +426,18 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
     private fun ensureChannel(nm: NotificationManager) {
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
+            runCatching { nm.deleteNotificationChannel(OLD_CHANNEL) } // saluran lama tanpa suara
             nm.createNotificationChannel(NotificationChannel(CHANNEL, S.get(R.string.agent_channel_name), NotificationManager.IMPORTANCE_HIGH).apply {
                 description = S.get(R.string.agent_channel_desc)
-            })
+                setSound(
+                    android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION),
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build(),
+                )
+                enableVibration(true)
+            }
+            )
         }
     }
 
@@ -428,6 +456,9 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
             .setContentTitle(S.get(R.string.agent_notif_title))
             .setContentText(text)
             .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setSubText(metaCache[chatId]?.title?.takeIf { it.isNotBlank() })
             .setContentIntent(pi)
             .build()
         runCatching { nm.notify(chatId.hashCode(), n) }
@@ -441,6 +472,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     companion object {
         const val REMOTE = "~/.termx/agentd.py"
         const val PY = "python3"
-        private const val CHANNEL = "agents"
+        private const val CHANNEL = "agents_sound"
+        private const val OLD_CHANNEL = "agents"
     }
 }

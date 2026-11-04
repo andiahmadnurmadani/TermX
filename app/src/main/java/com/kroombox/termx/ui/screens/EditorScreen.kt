@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -206,6 +208,8 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
 
     val dirty = value.text != original
     val name = path.substringAfterLast('/').ifBlank { path }
+    val isMarkdown = name.substringAfterLast('.', "").lowercase() in setOf("md", "markdown", "mdx", "mkd")
+    var preview by remember { mutableStateOf(isMarkdown && !isNew) }
     val useTabs = remember(original) { original.contains("\n\t") }
 
     DisposableEffect(hostId) {
@@ -377,6 +381,13 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                     IconButton(onClick = { redo.removeLastOrNull()?.let { undo.add(value); value = it } }, enabled = redo.isNotEmpty()) {
                         Icon(Icons.AutoMirrored.Rounded.Redo, stringResource(R.string.editor_redo))
                     }
+                    if (isMarkdown) IconButton(onClick = { preview = !preview }) {
+                        Icon(
+                            if (preview) Icons.Rounded.Edit else Icons.Rounded.Visibility,
+                            stringResource(if (preview) R.string.editor_md_edit else R.string.editor_md_preview),
+                            tint = if (preview) Palette.Accent else Palette.Text,
+                        )
+                    }
                     IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Rounded.Search, stringResource(R.string.editor_search), tint = if (searchOpen) Palette.Accent else Palette.Text) }
                     IconButton(onClick = { save(viaSudo || needSudoWrite) }, enabled = !saving && !loading && (dirty || isNew)) {
                         if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -435,6 +446,19 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                 )
             }
 
+            if (preview && !loading) {
+                // Pratinjau Markdown: tiap blok satu item agar file panjang tetap ringan.
+                val blocks = remember(value.text) { com.kroombox.termx.ui.components.MarkdownParser.parse(value.text) }
+                androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f).fillMaxWidth()) {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(blocks.size) { i -> com.kroombox.termx.ui.components.MarkdownBlock(blocks[i]) }
+                    }
+                }
+            } else
             // Area teks: gutter nomor baris + isi. Satu scroll vertikal untuk keduanya agar sejajar.
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val viewportW = maxWidth
@@ -471,7 +495,7 @@ fun EditorScreen(nav: Nav, hostId: String, rawPath: String, isNew: Boolean) {
                 }
             }
 
-            SymbolBar(onInsert = { insert(it) }, tab = if (useTabs) "\t" else "    ")
+            if (!preview) SymbolBar(onInsert = { insert(it) }, tab = if (useTabs) "\t" else "    ")
         }
     }
 
