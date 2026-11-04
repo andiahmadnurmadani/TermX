@@ -11,6 +11,7 @@ Login / API key tiap agent tidak pernah disentuh: agent memakai konfigurasi mili
 """
 import json
 import re
+import shlex
 import os
 import shutil
 import signal
@@ -21,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 3
+VERSION = 4
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -168,12 +169,14 @@ def cmd_list(_args):
 
 
 def cmd_new(args):
-    # new <agent> <cwd> [model] [mode]
+    # new <agent> <cwd> [model] [mode] [tmux]
     agent, cwd = args[0], os.path.expanduser(args[1] if len(args) > 1 else "~")
-    if agent not in ADAPTERS:
+    in_tmux = len(args) > 4 and args[4] == "tmux"
+    if agent not in ADAPTERS and not in_tmux:
         raise SystemExit("unsupported agent: " + agent)
     if not os.path.isdir(cwd):
         raise SystemExit("folder not found: " + cwd)
+    mirror = _new_in_tmux(agent, os.path.abspath(cwd), args[2] if len(args) > 2 else "", args[3] if len(args) > 3 else "") if in_tmux else None
     cid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     os.makedirs(chat_dir(cid), mode=0o700)
     meta = {
@@ -182,6 +185,8 @@ def cmd_new(args):
         "session": "", "created": now_ms(), "updated": now_ms(), "status": "idle",
         "cost": 0.0, "tokens_in": 0, "tokens_out": 0,
     }
+    if mirror:
+        meta["mirror"] = mirror
     write_meta(cid, meta)
     spawn_worker(cid)
     print(jdump({"id": cid}))
@@ -189,7 +194,15 @@ def cmd_new(args):
 
 def cmd_rm(args):
     cid = args[0]
+    m = read_meta(cid) or {}
+    owned = (m.get("mirror") or {}).get("owned")
     stop_worker(cid)
+    for _ in range(50):  # tunggu worker selesai menulis, agar folder benar-benar terhapus
+        if not worker_alive(cid):
+            break
+        time.sleep(0.1)
+    if owned and shutil.which("tmux"):  # sesi tmux yang dibuat TermX untuk chat ini
+        subprocess.run(["tmux", "kill-session", "-t", "=" + owned], capture_output=True)
     shutil.rmtree(chat_dir(cid), ignore_errors=True)
     print("{}")
 
@@ -1522,7 +1535,50 @@ def _running():
 IMPORT_BYTES = 3 * 1024 * 1024    # riwayat awal: bagian akhir transkrip
 IMPORT_EVENTS = 600
 BLOCKED_RE = re.compile(r"Do you want to|Would you like to|Allow (this|once|always)|\(y/n\)|\[y/N\]|❯ ?1\. Yes|Yes, proceed|"
-                        r"Press enter to confirm", re.I)
+                        r"Press enter to confirm|Enter to confirm|trust this folder", re.I)
+MENU_MARK = ("❯", "›", "▶", "→")
+
+
+def _menu(screen):
+    """Opsi menu pilihan di layar TUI: (daftar teks opsi, indeks kursor) atau (None, -1)."""
+    rows = screen.splitlines()[-30:]
+    cur = next((i for i in range(len(rows) - 1, -1, -1) if rows[i].strip()[:1] in MENU_MARK), -1)
+    if cur < 0:
+        return None, -1
+
+    def is_opt(s):
+        s = s.strip()
+        return bool(s) and not s.endswith("?") and not s.endswith(":") and not re.search(r"(Enter|Esc) to |^[─━-]{3,}", s) and len(s) < 120
+
+    lo = cur
+    while lo - 1 >= 0 and is_opt(rows[lo - 1]) and (rows[lo - 1].startswith("  ") or re.match(r"\s*\d+[.)]", rows[lo - 1])):
+        lo -= 1
+    hi = cur
+    while hi + 1 < len(rows) and is_opt(rows[hi + 1]) and (rows[hi + 1].startswith("  ") or re.match(r"\s*\d+[.)]", rows[hi + 1])):
+        hi += 1
+    opts = [re.sub(r"^[\s❯›▶→>]*(\d+[.)]\s*)?", "", r).strip() for r in rows[lo:hi + 1]]
+    return opts, cur - lo
+
+
+def _menu_keys(screen, allow, always):
+    """Tombol untuk memilih Yes / Always / No pada menu persetujuan; None bila menu tak terbaca."""
+    if not allow:
+        return ["esc"]
+    opts, cur = _menu(screen)
+    if not opts:
+        return None
+    yes = [i for i, o in enumerate(opts) if re.match(r"(yes|allow|approve|proceed|trust|continue|ok)\b", o, re.I)]
+    if not yes:
+        return None
+    pick = yes[0]
+    if always:
+        more = [i for i in yes if re.search(r"don.t ask|always|for this session|all ", opts[i], re.I)]
+        pick = more[0] if more else yes[0]
+    else:
+        plain = [i for i in yes if not re.search(r"don.t ask|always|for this session", opts[i], re.I)]
+        pick = plain[0] if plain else yes[0]
+    d = pick - cur
+    return (["down"] * d if d > 0 else ["up"] * -d) + ["enter"]
 
 
 def _plain_user(text):
@@ -1809,7 +1865,7 @@ class MirrorAdapter:
             subprocess.run([self.mi.get("herdr_bin") or "herdr", "agent", "send-keys", self.mi["herdr_pane"], *keys],
                            capture_output=True, timeout=5)
         else:
-            names = {"enter": "Enter", "down": "Down", "esc": "Escape"}
+            names = {"enter": "Enter", "down": "Down", "up": "Up", "esc": "Escape"}
             for k in keys:
                 subprocess.run(["tmux", "send-keys", "-t", self.mi["tmux"], names.get(k, k)], capture_output=True, timeout=5)
                 time.sleep(0.08)
@@ -1830,6 +1886,10 @@ class MirrorAdapter:
     def send(self, text):
         if not self._interactive() or not self._alive():
             return self._continue_here(text)
+        if self.mi.get("owned"):  # agent baru dijalankan: beri waktu tampilan terminalnya siap
+            wait = 6 - (time.time() - (self.w.meta.get("created", 0) / 1000.0))
+            if wait > 0:
+                time.sleep(min(wait, 6))
         self.sent.append(text)
         self.grace = time.time() + 8
         try:
@@ -1855,12 +1915,10 @@ class MirrorAdapter:
     def permission(self, rid, allow, always):
         if rid != self.perm:
             return
-        if self.agent == "codex":
-            keys = ["a"] if (allow and always) else ["y"] if allow else ["esc"]
-        elif self.agent == "claude":
-            keys = ["down", "enter"] if (allow and always) else ["enter"] if allow else ["esc"]
-        else:
-            keys = ["enter"] if allow else ["esc"]
+        keys = _menu_keys(_screen(self.mi, 40), allow, always)
+        if keys is None:  # menu tidak terbaca: jangan menebak pilihan
+            self.w.emit({"t": "note", "msg": "Couldn't read the choices on screen. Open the session in a terminal to answer."})
+            return
         try:
             self._keys(*keys)
         except Exception as e:
@@ -1926,10 +1984,12 @@ class MirrorAdapter:
             if sid and sid != self.w.meta.get("session"):  # /clear atau /resume di terminal: sesi baru
                 tr = _claude_transcript(sid)
                 if tr:
+                    had = bool(self.w.meta.get("session"))
                     self.w.save_meta(session=sid)
                     self.mi.update(transcript=tr, offset=0)
                     self.partial = b""
-                    self.w.emit({"t": "note", "msg": "A new conversation started in the terminal."})
+                    if had:
+                        self.w.emit({"t": "note", "msg": "A new conversation started in the terminal."})
         if self.agent == "codex" and not self.mi.get("transcript"):
             sid, tr = transcript_of("codex", self.mi.get("pid"), self.w.meta.get("session"), self.w.meta["cwd"], 0)
             if tr:
@@ -1993,21 +2053,24 @@ class MirrorAdapter:
                 if self._interactive() and (not has_transcript or st in ("working", "blocked", "") or self.perm):
                     screen = _screen(self.mi, 40)
                 blocked = st == "blocked" or (self._interactive() and st != "idle" and bool(BLOCKED_RE.search("\n".join(screen.splitlines()[-14:]))))
-                if not has_transcript and screen and screen != self.screen:
+                if not has_transcript and self.agent not in ("claude", "codex") and screen and screen != self.screen:
                     self.screen = screen
                     self.screen_at = time.time()
                     self.w.emit({"t": "screen", "text": clip(screen, 5000)})
                 if blocked and not self.perm:
                     self.perm_n += 1
                     self.perm = "s%d-%d" % (int(time.time()), self.perm_n)
-                    lines = [x for x in (screen or _screen(self.mi, 40)).splitlines() if x.strip()][-14:]
+                    lines = [x.strip() for x in (screen or _screen(self.mi, 40)).splitlines()
+                             if x.strip() and not re.match(r"^[\s─━═│┃╭╮╰╯┌┐└┘-]+$", x)][-14:]
                     self.w.emit({"t": "perm", "rid": self.perm, "tool": "Approval in %s" % self.mi.get("place"),
                                  "desc": "", "input": {"summary": "\n".join(lines)}, "always": self.agent in ("claude", "codex")})
                     if not self.w.busy:
                         self.w.set_busy(True)
                 elif not blocked and self.perm:
                     self._close_perm(True)
-                if st == "working" and not self.w.busy:
+                if self.perm:
+                    pass  # menunggu jawaban: tetap "working"
+                elif st == "working" and not self.w.busy:
                     self.w.set_busy(True)
                 elif st in ("idle", "done") and self.w.busy and time.time() > self.grace and not has_transcript:
                     self.w.set_busy(False)
@@ -2021,9 +2084,197 @@ class MirrorAdapter:
                 self.w.emit({"t": "stderr", "msg": "mirror: %s" % e})
 
 
+# ------------------------------------------------------------------ chat yang juga tampil di terminal (tmux)
+
+def _tmux_cmd_for(agent, binp, model, mode):
+    cmd = [binp]
+    if agent == "claude":
+        if model:
+            cmd += ["--model", model]
+        if mode and mode != "manual":
+            cmd += ["--permission-mode", "default" if mode == "manual" else mode]
+    elif agent == "codex" and model:
+        cmd += ["-m", model]
+    return " ".join(shlex.quote(c) for c in cmd)
+
+
+def _new_in_tmux(agent, cwd, model, mode):
+    """Jalankan agent interaktif di sesi tmux baru, lalu ikuti sebagai chat (lihat MirrorAdapter)."""
+    if not shutil.which("tmux"):
+        raise SystemExit("tmux is not installed on this server")
+    entry = next((a for a in CATALOG if a["id"] == agent), None)
+    binp = first_bin(*(entry["bins"] if entry else [agent]))
+    if not binp:
+        raise SystemExit("agent not found: " + agent)
+    name = "termx-" + uuid.uuid4().hex[:6]
+    env_path()
+    subprocess.run(["tmux", "new-session", "-d", "-s", name, "-x", "160", "-y", "48", "-c", cwd,
+                    _tmux_cmd_for(agent, binp, model, mode)], check=True, capture_output=True, timeout=10)
+    pid = 0
+    for _ in range(60):  # tunggu proses agent muncul di pane (maks ~6 detik)
+        time.sleep(0.1)
+        procs = _procs()
+        pane_pid = next((pp for pp, info in _tmux_panes().items() if info["session"] == name), 0)
+        if not pane_pid:
+            continue
+        if _agent_of(procs.get(pane_pid, {}).get("argv")) == agent:
+            pid = pane_pid
+            break
+        kids = [p for p, q in procs.items() if q["ppid"] == pane_pid and _agent_of(q["argv"]) == agent]
+        if kids:
+            pid = kids[0]
+            break
+    if not pid:
+        subprocess.run(["tmux", "kill-session", "-t", "=" + name], capture_output=True)
+        raise SystemExit("the agent did not start in tmux")
+    mi = {"where": "tmux", "pid": pid, "herdr_pane": "", "herdr_bin": "", "tmux": "=%s:0.0" % name,
+          "place": "tmux " + name, "transcript": "", "offset": 0, "owned": name}
+    return mi
+
+
+# ------------------------------------------------------------------ pemakaian & akun per provider
+# Hanya dari sumber resmi milik agent: perintah status CLI, kejadian rate limit yang dilaporkan agent,
+# dan biaya yang dicatat TermX. Kredensial tidak pernah dibaca.
+
+def _run_text(cmd, timeout=15):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+        return (r.stdout or "") + (r.stderr or "")
+    except Exception:
+        return ""
+
+
+def _tail_lines(path, nbytes=256 * 1024):
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            f.seek(max(0, size - nbytes))
+            data = f.read()
+        return data.decode("utf-8", "replace").splitlines()[1 if size > nbytes else 0:]
+    except OSError:
+        return []
+
+
+def _claude_usage(binp):
+    u = {"limits": None, "limits_at": 0}
+    out = _run_text([binp, "auth", "status"])
+    try:
+        j = json.loads(out[out.index("{"):out.rindex("}") + 1])
+    except Exception:
+        j = {}
+    u["auth"] = {"logged_in": bool(j.get("loggedIn")), "method": j.get("authMethod") or "",
+                 "plan": j.get("subscriptionType") or "", "provider": j.get("apiProvider") or "",
+                 "account": j.get("email") or "", "org": j.get("orgName") or "", "expires": j.get("loginExpiresAt") or ""}
+    # kuota terbaru yang dilaporkan Claude Code ke chat TermX mana pun
+    best = None
+    if os.path.isdir(ROOT):
+        for cid in os.listdir(ROOT):
+            p = os.path.join(ROOT, cid, "events.jsonl")
+            if not os.path.exists(p):
+                continue
+            for line in reversed(_tail_lines(p, 128 * 1024)):
+                if '"t":"limits"' in line or '"t": "limits"' in line:
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if best is None or e.get("at", 0) > best.get("at", 0):
+                        best = e
+                    break
+    if best:
+        u["limits"], u["limits_at"] = best.get("windows"), best.get("at", 0)
+    return u
+
+
+def _codex_usage(binp):
+    out = _run_text([binp, "login", "status"]).strip().splitlines()
+    u = {"auth": {"logged_in": bool(out) and not out[0].lower().startswith("not logged"), "method": out[0] if out else ""},
+         "limits": None, "limits_at": 0}
+    import glob
+    files = sorted(glob.glob(os.path.expanduser("~/.codex/sessions/*/*/*/rollout-*.jsonl")), key=os.path.getmtime, reverse=True)
+    for f in files[:10]:
+        for line in reversed(_tail_lines(f)):
+            if '"rate_limits"' not in line:
+                continue
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            rl = (o.get("payload") or {}).get("rate_limits") or {}
+            ts = o.get("timestamp") or ""
+            try:
+                import datetime
+                at = int(datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000)
+            except Exception:
+                at = int(os.path.getmtime(f) * 1000)
+            wins = {}
+            for k in ("primary", "secondary"):
+                w = rl.get(k)
+                if not isinstance(w, dict):
+                    continue
+                mins = w.get("window_minutes") or 0
+                key = ("five_hour" if mins == 300 else "seven_day" if mins == 10080 else "%dm" % mins) if mins else k
+                reset = w.get("resets_at") or (at // 1000 + int(w["resets_in_seconds"]) if w.get("resets_in_seconds") else None)
+                up = w.get("used_percent")
+                wins[key] = {"used": up / 100.0 if isinstance(up, (int, float)) else None, "reset": reset}  # pecahan 0..1
+            if wins:
+                u["limits"], u["limits_at"] = wins, at
+                return u
+    return u
+
+
+def _opencode_usage(binp):
+    stats = []
+    for line in _run_text([binp, "stats"], timeout=25).splitlines():
+        m = re.match(r"^\s*│\s*(.+?)\s{2,}(\S.*?)\s*│\s*$", line)
+        if m and m.group(1).strip() and not m.group(1).strip().isupper():
+            stats.append([m.group(1).strip(), m.group(2).strip()])
+    return {"auth": {}, "limits": None, "limits_at": 0, "stats": stats[:12]}
+
+
+USAGE_READERS = {"claude": _claude_usage, "codex": _codex_usage, "opencode": _opencode_usage}
+
+
+def cmd_usage(_args):
+    totals = {}
+    if os.path.isdir(ROOT):
+        for cid in os.listdir(ROOT):
+            m = read_meta(cid)
+            if not m:
+                continue
+            t = totals.setdefault(m.get("agent"), {"cost": 0.0, "tokens_in": 0, "tokens_out": 0, "chats": 0})
+            t["cost"] += m.get("cost") or 0.0
+            t["tokens_in"] += m.get("tokens_in") or 0
+            t["tokens_out"] += m.get("tokens_out") or 0
+            t["chats"] += 1
+    results, threads = {}, []
+    agents = [(a, first_bin(*a["bins"])) for a in CATALOG]
+    agents = [(a, p) for a, p in agents if p]
+
+    def work(a, p):
+        try:
+            results[a["id"]] = USAGE_READERS[a["id"]](p) if a["id"] in USAGE_READERS else {}
+        except Exception as e:
+            results[a["id"]] = {"error": str(e)[:200]}
+
+    for a, p in agents:
+        th = threading.Thread(target=work, args=(a, p), daemon=True)
+        th.start()
+        threads.append(th)
+    for th in threads:
+        th.join(30)
+    out = []
+    for a, _p in agents:
+        r = dict(results.get(a["id"]) or {})
+        r.update({"agent": a["id"], "name": a["name"], "reported": a["id"] in USAGE_READERS,
+                  **{k: round(v, 6) if isinstance(v, float) else v for k, v in (totals.get(a["id"]) or {}).items()}})
+        out.append(r)
+    print(jdump({"providers": out, "at": now_ms()}))
+
+
 COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
-    "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "_worker": cmd_worker,
+    "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
 }
 
 
@@ -2033,7 +2284,7 @@ def main():
         if len(sys.argv) > 1 and sys.argv[1] == "version":
             print(VERSION)
             return
-        raise SystemExit("usage: agentd.py detect|list|new|attach|rm|stop|rename|running|mirror|version")
+        raise SystemExit("usage: agentd.py detect|list|new|attach|rm|stop|rename|running|mirror|usage|version")
     COMMANDS[sys.argv[1]](sys.argv[2:])
 
 

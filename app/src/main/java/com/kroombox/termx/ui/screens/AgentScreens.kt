@@ -1,5 +1,11 @@
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -259,6 +265,8 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
     var renaming by remember { mutableStateOf<ChatMeta?>(null) }
     var deleting by remember { mutableStateOf<ChatMeta?>(null) }
     var opening by remember { mutableStateOf<Pair<Long, String>?>(null) }
+    var usage by remember { mutableStateOf<List<com.kroombox.termx.agent.ProviderUsage>?>(null) }
+    var newAgent by remember { mutableStateOf<String?>(null) }
     var openError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val live by mgr.chats.collectAsState()
@@ -281,6 +289,7 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                 chats = c.await()
                 running = r.await()
             }
+            launch { runCatching { usage = mgr.usage(hostId) } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -288,10 +297,12 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
         }
         loading = false
         // Status percakapan diperbarui diam-diam selama layar terbuka.
+        var tick = 0
         while (error == null) {
             delay(6000)
             runCatching { chats = mgr.list(hostId) }
             runCatching { running = mgr.running(hostId) }
+            if (++tick % 10 == 0) runCatching { usage = mgr.usage(hostId) }
         }
     }
 
@@ -346,19 +357,26 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                 Modifier.padding(pad).fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
             ) {
-                if (limits.first.isNotEmpty()) item("usage") { UsageCard(limits.first, limits.second) }
-
-                item("agents-h") { SectionHeader(stringResource(R.string.agent_installed)) }
-                item("agents") {
-                    FlowAgents(chatAgents, termAgents) { a ->
-                        if (a.isChat) showNew = true
+                val run = running?.agents.orEmpty()
+                item("dock") {
+                    AgentDock(
+                        chatAgents + termAgents,
+                        busy = (run.filter { (it.herdrStatus.ifBlank { it.status }) == "working" }.map { it.agent } +
+                            chats.orEmpty().filter { it.status == "working" }.map { it.agent }).toSet(),
+                    ) { a ->
+                        if (a.isChat) { newAgent = a.id; showNew = true }
                         else nav.agentTerminal(hostId, a.id, a.bin, mgr.recentFolders(hostId).firstOrNull() ?: "~")
                     }
                 }
+                if (termAgents.isNotEmpty()) item("dock-hint") {
+                    Text(
+                        stringResource(R.string.agent_terminal_hint), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+                        modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
+                    )
+                }
 
-                val run = running?.agents.orEmpty()
                 if (run.isNotEmpty()) {
-                    item("run-h") { SectionHeader(stringResource(R.string.agent_running)) }
+                    item("run-h") { AgentSection(stringResource(R.string.agent_running)) }
                     run.forEach { r ->
                         item("run-${r.where}-${r.pid}-${r.herdrPane}") {
                             RunningRow(
@@ -385,9 +403,12 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                     }
                 }
 
+                item("usage-h") { AgentSection(stringResource(R.string.agent_usage_section)) }
+                item("usage") { UsageSection(usage, limits) }
+
                 val list = chats.orEmpty()
                 item("chats-h") {
-                    SectionHeader(stringResource(R.string.agent_conversations), trailing = {
+                    AgentSection(stringResource(R.string.agent_conversations), trailing = {
                         if (loading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = Palette.TextDim)
                     })
                 }
@@ -440,7 +461,8 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
         NewChatSheet(
             hostId = hostId,
             agents = agents.filter { it.isChat },
-            onDismiss = { showNew = false },
+            preselect = newAgent,
+            onDismiss = { showNew = false; newAgent = null },
             onCreated = { id ->
                 showNew = false
                 nav.agentChat(hostId, id)
@@ -494,6 +516,187 @@ internal fun UsageCard(limits: List<LimitWindow>, at: Long) {
             if (r.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text(r, style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+            }
+        }
+    }
+}
+
+/** Judul bagian di layar agent: kalimat biasa, bukan huruf kapital berjarak. */
+@Composable
+internal fun AgentSection(text: String, trailing: (@Composable () -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 26.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Palette.Text, modifier = Modifier.weight(1f))
+        trailing?.invoke()
+    }
+}
+
+/**
+ * Deretan agent yang terpasang. Agent yang sedang bekerja diberi cincin warna mereknya — satu-satunya
+ * aksen kuat di beranda, sehingga sekilas terlihat siapa yang sedang sibuk.
+ */
+@Composable
+internal fun AgentDock(agents: List<AgentInfo>, busy: Set<String>, onTap: (AgentInfo) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        agents.forEach { a ->
+            val color = agentColor(a.id)
+            val working = a.id in busy
+            Surface(
+                onClick = { onTap(a) },
+                shape = RoundedCornerShape(20.dp),
+                color = Palette.Surface,
+                border = if (working) androidx.compose.foundation.BorderStroke(1.5.dp, color.copy(alpha = 0.85f)) else null,
+                modifier = Modifier.width(100.dp),
+            ) {
+                Column(Modifier.padding(top = 14.dp, bottom = 12.dp, start = 6.dp, end = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(contentAlignment = Alignment.TopEnd) {
+                        AgentGlyph(a.id, 44.dp)
+                        if (working) Box(Modifier.offset(x = 3.dp, y = (-3).dp)) { PulseDot(Palette.Accent) }
+                    }
+                    Spacer(Modifier.height(9.dp))
+                    Text(a.name.removeSuffix(" Agent"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+                        color = Palette.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        if (working) stringResource(R.string.agent_working_short)
+                        else if (a.isChat) a.version.substringBefore(' ').ifBlank { stringResource(R.string.agent_kind_chat) }
+                        else stringResource(R.string.agent_kind_terminal),
+                        style = MaterialTheme.typography.labelSmall, color = if (working) Palette.Accent else Palette.TextDim,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun authLabel(u: com.kroombox.termx.agent.ProviderUsage): String? = when {
+    u.agent == "claude" && u.loggedIn == false -> S.get(R.string.agent_acct_signed_out)
+    u.agent == "claude" && u.authMethod == "claude.ai" ->
+        if (u.plan.isNotBlank()) S.get(R.string.agent_acct_plan, u.plan.replaceFirstChar { it.uppercase() }) else S.get(R.string.agent_acct_subscription)
+    u.agent == "claude" && u.provider.isNotBlank() && u.provider != "firstParty" -> S.get(R.string.agent_acct_cloud, u.provider)
+    u.agent == "claude" && u.authMethod.isNotBlank() -> S.get(R.string.agent_acct_api_key)
+    u.agent == "codex" -> u.authMethod.ifBlank { null }
+    else -> null
+}
+
+/** Penjelasan sumber angka (atau mengapa tidak ada), agar pengguna tahu apa yang bisa dipercaya. */
+private fun usageNote(u: com.kroombox.termx.agent.ProviderUsage): String? = when {
+    u.agent == "claude" && u.authMethod == "claude.ai" && u.limits.isEmpty() -> S.get(R.string.agent_note_claude_limits_pending)
+    u.agent == "claude" && u.authMethod == "claude.ai" -> S.get(R.string.agent_note_claude_limits)
+    u.agent == "claude" && u.provider.isNotBlank() && u.provider != "firstParty" -> S.get(R.string.agent_note_cloud_billing)
+    u.agent == "claude" && u.loggedIn == true -> S.get(R.string.agent_note_api_credit)
+    u.agent == "codex" && u.loggedIn == false -> S.get(R.string.agent_note_codex_login)
+    u.agent == "codex" && u.limits.isEmpty() -> S.get(R.string.agent_note_codex_pending)
+    u.agent == "codex" -> S.get(R.string.agent_note_codex_limits)
+    u.agent == "opencode" -> S.get(R.string.agent_note_opencode)
+    else -> null
+}
+
+@Composable
+internal fun UsageSection(usage: List<com.kroombox.termx.agent.ProviderUsage>?, saved: Pair<List<LimitWindow>, Long>) {
+    if (usage == null) {
+        Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = Palette.TextDim)
+            Spacer(Modifier.width(10.dp))
+            Text(stringResource(R.string.agent_usage_loading), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+        }
+        return
+    }
+    val rich = usage.filter { it.reported || it.cost > 0 }
+    val quiet = usage.filter { it !in rich }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        rich.forEach { u ->
+            // Kuota Claude yang tersimpan di HP dipakai bila server belum punya catatan.
+            val limits = u.limits.ifEmpty { if (u.agent == "claude") saved.first else emptyList() }
+            val at = if (u.limits.isNotEmpty()) u.limitsAt else saved.second
+            ProviderCard(u, limits, at)
+        }
+        if (quiet.isNotEmpty()) {
+            Text(
+                stringResource(R.string.agent_usage_unreported, quiet.joinToString(", ") { it.name }),
+                style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ProviderCard(u: com.kroombox.termx.agent.ProviderUsage, limits: List<LimitWindow>, at: Long) {
+    val color = agentColor(u.agent)
+    Surface(shape = RoundedCornerShape(18.dp), color = Palette.Surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AgentGlyph(u.agent, 34.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(u.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Palette.Text)
+                    val acct = authLabel(u)
+                    if (acct != null) {
+                        Text(
+                            acct, style = MaterialTheme.typography.bodySmall,
+                            color = if (u.loggedIn == false) Palette.Warn else Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (at > 0 && limits.isNotEmpty()) Text(timeAgo(at), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
+            }
+            if (u.account.isNotBlank() || u.org.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    listOf(u.account, u.org).filter { it.isNotBlank() }.joinToString(", "),
+                    style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            limits.forEach { w ->
+                val p = limitPercent(w)
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(limitLabel(w.key), style = MaterialTheme.typography.bodyMedium, color = Palette.Text, modifier = Modifier.weight(1f))
+                    Text(
+                        if (p == null) "–" else stringResource(R.string.agent_limit_left, (100 - p).coerceIn(0.0, 100.0).toInt()),
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                        color = if (p == null) Palette.TextDim else usageColor(p),
+                    )
+                }
+                Spacer(Modifier.height(7.dp))
+                UsageBar(((p ?: 0.0) / 100).toFloat(), if (p == null) Palette.TextDim else usageColor(p))
+                val r = resetIn(w.resetEpochSec)
+                if (r.isNotEmpty()) {
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        if (p != null) stringResource(R.string.agent_limit_used_reset, p.toInt(), r) else r,
+                        style = MaterialTheme.typography.labelSmall, color = Palette.TextDim,
+                    )
+                }
+            }
+            if (u.stats.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                u.stats.take(6).forEach { (k, v) ->
+                    Row(Modifier.padding(vertical = 2.dp)) {
+                        Text(k, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, modifier = Modifier.weight(1f))
+                        Text(v, style = MaterialTheme.typography.bodySmall, color = Palette.Text)
+                    }
+                }
+            }
+            if (u.cost > 0 || u.tokensOut > 0) {
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.08f)).padding(horizontal = 12.dp, vertical = 9.dp)) {
+                    Text(stringResource(R.string.agent_usage_termx, u.chats), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, modifier = Modifier.weight(1f))
+                    Text(
+                        if (u.cost > 0) formatCost(u.cost) else formatTokens(u.tokensIn + u.tokensOut) + " tok",
+                        style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = Palette.Text,
+                    )
+                }
+            }
+            usageNote(u)?.let { n ->
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Rounded.Info, null, tint = Palette.TextDim, modifier = Modifier.padding(top = 1.dp).size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(n, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                }
             }
         }
     }
@@ -638,13 +841,22 @@ internal fun RunningRow(
         else -> S.get(R.string.agent_running_other, r.tty.ifBlank { "?" })
     }
     val status = r.herdrStatus.ifBlank { r.status }
-    Box {
+    val (statusText, statusColor) = when (status) {
+        "working" -> stringResource(R.string.agent_working_short) to Palette.Accent
+        "blocked", "waiting" -> stringResource(R.string.agent_waiting_short) to Palette.Warn
+        "idle", "done" -> stringResource(R.string.agent_idle_short) to Palette.TextDim
+        else -> null to Palette.TextDim
+    }
+    Box(Modifier.padding(bottom = 8.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Surface)
                 .combinedClickable(onClick = onChat, onLongClick = { menu = true })
-                .padding(horizontal = 4.dp, vertical = 10.dp),
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Box(Modifier.width(3.dp).fillMaxHeight().background(agentColor(r.agent).copy(alpha = if (status == "working") 1f else 0.45f)))
+            Spacer(Modifier.width(11.dp))
+            Row(Modifier.weight(1f).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             AgentGlyph(r.agent, 38.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -659,18 +871,20 @@ internal fun RunningRow(
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
-                if (r.startedSec > 0) Text(timeAgo(r.startedSec * 1000), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
-                Spacer(Modifier.height(4.dp))
-                when {
-                    status == "working" -> PulseDot(Palette.Accent)
-                    status == "blocked" || status == "waiting" -> StatusDot(Palette.Warn, 7.dp)
-                    r.tmuxAttached -> StatusDot(Palette.Blue, 7.dp)
-                    else -> StatusDot(Palette.TextDim, 7.dp)
+                if (statusText != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (status == "working") PulseDot(statusColor) else StatusDot(statusColor, 6.dp)
+                        Spacer(Modifier.width(5.dp))
+                        Text(statusText, style = MaterialTheme.typography.labelSmall, color = statusColor)
+                    }
+                    Spacer(Modifier.height(3.dp))
                 }
+                if (r.startedSec > 0) Text(timeAgo(r.startedSec * 1000), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
             }
-            Box(Modifier.padding(start = 12.dp, end = 8.dp).size(20.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.padding(start = 12.dp, end = 12.dp).size(20.dp), contentAlignment = Alignment.Center) {
                 if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Palette.Accent)
                 else Icon(Icons.AutoMirrored.Rounded.Chat, null, tint = if (r.chat.isNotBlank()) Palette.Accent else Palette.TextDim, modifier = Modifier.size(20.dp))
+            }
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -711,10 +925,14 @@ private fun RenameDialog(current: String, onDismiss: () -> Unit, onSave: (String
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, onDismiss: () -> Unit, onCreated: (String) -> Unit) {
+private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, preselect: String? = null, onDismiss: () -> Unit, onCreated: (String) -> Unit) {
     val mgr = TermXApp.container.agents
     val recent = remember(hostId) { mgr.recentFolders(hostId) }
-    var agentId by remember { mutableStateOf(mgr.lastAgent(hostId)?.takeIf { id -> agents.any { it.id == id } } ?: agents.firstOrNull()?.id ?: "") }
+    var agentId by remember {
+        mutableStateOf(preselect?.takeIf { id -> agents.any { it.id == id } }
+            ?: mgr.lastAgent(hostId)?.takeIf { id -> agents.any { it.id == id } } ?: agents.firstOrNull()?.id ?: "")
+    }
+    var inTerminal by remember(agentId) { mutableStateOf(mgr.lastInTerminal(agentId)) }
     val agent = agents.firstOrNull { it.id == agentId }
     var folder by remember { mutableStateOf(recent.firstOrNull() ?: "~") }
     var model by remember(agentId) { mutableStateOf(mgr.lastModel(agentId).takeIf { m -> agent?.models?.contains(m) == true } ?: "") }
@@ -781,6 +999,22 @@ private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, onDismiss: () 
                     agent.modes.forEach { m -> SmallChip(modeLabel(m), mode == m) { mode = m } }
                 }
             }
+            Spacer(Modifier.height(18.dp))
+            Surface(
+                onClick = { inTerminal = !inTerminal }, shape = RoundedCornerShape(16.dp),
+                color = if (inTerminal) Palette.Accent.copy(alpha = 0.10f) else Palette.SurfaceHigh, modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Terminal, null, tint = if (inTerminal) Palette.Accent else Palette.TextDim, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.agent_in_terminal), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.Text)
+                        Text(stringResource(R.string.agent_in_terminal_desc), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                    }
+                    Switch(checked = inTerminal, onCheckedChange = { inTerminal = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Palette.Bg, checkedTrackColor = Palette.Accent))
+                }
+            }
             if (agent?.id == "pi" || agent?.id == "omp") {
                 Spacer(Modifier.height(12.dp))
                 Text(stringResource(R.string.agent_pi_note), style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
@@ -799,7 +1033,7 @@ private fun NewChatSheet(hostId: String, agents: List<AgentInfo>, onDismiss: () 
                                 error = S.get(R.string.agent_folder_missing)
                             } else {
                                 mgr.rememberChoice(hostId, a.id, model)
-                                onCreated(mgr.newChat(hostId, a.id, dir, model, mode))
+                                onCreated(mgr.newChat(hostId, a.id, dir, model, mode, inTerminal))
                             }
                         } catch (e: CancellationException) {
                             throw e
@@ -887,6 +1121,18 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
         }
     }
 
+    // Buka di pesan terbaru, dan ikuti pesan baru selama pengguna sedang di bagian bawah.
+    var landed by remember(chatId) { mutableStateOf(false) }
+    LaunchedEffect(state.items.size, state.items.lastOrNull()?.key, state.working) {
+        if (state.items.isEmpty()) return@LaunchedEffect
+        if (!landed) {
+            listState.scrollToItem(0)
+            landed = true
+        } else if (listState.firstVisibleItemIndex <= 2) {
+            listState.animateScrollToItem(0)
+        }
+    }
+
     val modelChoices = state.models.ifEmpty { agent?.models?.map { Choice(it, it) } ?: emptyList() }
     val modeChoices = state.modes.ifEmpty { agent?.modes?.map { Choice(it, modeLabel(it)) } ?: emptyList() }
     val currentModel = state.model.ifBlank { meta?.model ?: "" }
@@ -924,6 +1170,8 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
         topBar = {
             TopAppBar(
                 title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    meta?.agent?.let { AgentGlyph(it, 32.dp); Spacer(Modifier.width(12.dp)) }
                     Column {
                         Text(
                             meta?.title?.ifBlank { null } ?: agent?.name ?: stringResource(R.string.agent_title),
@@ -943,6 +1191,7 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                                 style = MaterialTheme.typography.labelMedium, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
                     }
                 },
                 navigationIcon = { IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.mon_back)) } },
@@ -1009,7 +1258,7 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
                 ) {
-                    if (state.working || state.retry != null) item("~working") { WorkingRow(state) }
+                    if (state.working || state.retry != null) item("~working") { WorkingRow(state, meta?.agent) }
                     items(reversed, key = { it.key }, contentType = { it::class }) { item ->
                         ChatItemView(
                             item,
@@ -1108,7 +1357,8 @@ internal fun ChatEmpty(name: String, cwd: String, agentId: String?, modifier: Mo
 }
 
 @Composable
-internal fun WorkingRow(state: ChatState) {
+internal fun WorkingRow(state: ChatState, agentId: String? = null) {
+    val tint = agentId?.let { agentColor(it) }?.takeIf { it != Color(0xFFE6EDF3) && it != Palette.TextDim } ?: Palette.Accent
     val t = rememberInfiniteTransition(label = "dots")
     val phase by t.animateFloat(0f, 3f, infiniteRepeatable(tween(1200)), label = "p")
     Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1116,7 +1366,7 @@ internal fun WorkingRow(state: ChatState) {
             val on = phase.toInt() == i
             Box(
                 Modifier.padding(end = 4.dp).size(7.dp).clip(CircleShape)
-                    .background(Palette.Accent.copy(alpha = if (on) 1f else 0.3f)),
+                    .background(tint.copy(alpha = if (on) 1f else 0.3f)),
             )
         }
         Spacer(Modifier.width(8.dp))

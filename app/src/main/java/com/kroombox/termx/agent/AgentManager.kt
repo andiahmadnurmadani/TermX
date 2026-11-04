@@ -164,11 +164,42 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         }
     }
 
-    suspend fun newChat(hostId: String, agent: String, cwd: String, model: String, mode: String): String =
+    suspend fun newChat(hostId: String, agent: String, cwd: String, model: String, mode: String, inTerminal: Boolean = false): String =
         withContext(Dispatchers.IO) {
             rememberFolder(hostId, cwd)
-            run(hostId, "new ${shq(agent)} ${shq(cwd)} ${shq(model)} ${shq(mode)}").str("id")
+            prefs.edit().putBoolean("term_$agent", inTerminal).apply()
+            val id = run(hostId, "new ${shq(agent)} ${shq(cwd)} ${shq(model)} ${shq(mode)}" + if (inTerminal) " tmux" else "", timeoutSec = 40).str("id")
+            if (inTerminal) runCatching { list(hostId) }
+            id
         }
+
+    /** Pilihan terakhir "tampilkan juga di terminal" untuk agent ini (bawaan: aktif untuk Claude & Codex). */
+    fun lastInTerminal(agent: String): Boolean = prefs.getBoolean("term_$agent", agent == "claude" || agent == "codex")
+
+    /** Akun & kuota tiap provider, dari perintah status resmi agent dan kejadian yang dilaporkannya. */
+    suspend fun usage(hostId: String): List<ProviderUsage> = withContext(Dispatchers.IO) {
+        val o = run(hostId, "usage", timeoutSec = 60)
+        o.arr("providers")?.mapNotNull { e ->
+            (e as? JsonObject)?.let { p ->
+                val a = p.obj("auth")
+                ProviderUsage(
+                    p.str("agent"), p.str("name"), p.bool("reported") == true,
+                    a?.bool("logged_in"), a?.str("method") ?: "", a?.str("plan") ?: "", a?.str("provider") ?: "",
+                    a?.str("account") ?: "", a?.str("org") ?: "", a?.str("expires") ?: "",
+                    p.obj("limits")?.map { (k, v) ->
+                        val w = v as? JsonObject
+                        LimitWindow(k, (w?.get("used") as? kotlinx.serialization.json.JsonPrimitive)?.let { it.content.toDoubleOrNull() },
+                            w?.long("reset")?.takeIf { it > 0 }, w?.str("status"))
+                    } ?: emptyList(),
+                    p.long("limits_at"),
+                    p.arr("stats")?.mapNotNull { s -> (s as? kotlinx.serialization.json.JsonArray)?.takeIf { it.size >= 2 }?.let {
+                        (it[0] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() to (it[1] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                    } } ?: emptyList(),
+                    p.dbl("cost"), p.long("tokens_in"), p.long("tokens_out"), p.long("chats").toInt(),
+                )
+            }
+        } ?: emptyList()
+    }
 
     suspend fun delete(hostId: String, chatId: String) = withContext(Dispatchers.IO) {
         close(chatId)

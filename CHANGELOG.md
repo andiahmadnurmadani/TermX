@@ -3,6 +3,27 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.3] - 2026-11-04
+
+### Added
+- "Show in a terminal too" when starting a chat. The agent runs in its own tmux session on the server, so every
+  message you send from TermX also appears in that terminal, and you can attach from a computer with `tmux attach`.
+  On by default for Claude Code and Codex. Deleting the chat closes that tmux session.
+- Usage and accounts on the AI agents screen, per provider: how Claude Code is connected (plan via Claude.ai,
+  API key, or a cloud provider) with the 5-hour and weekly limits left, Codex sign-in and limits from its latest
+  session, opencode totals, and what TermX chats cost. Each card says where its numbers come from. Remaining API
+  credit is not available from Claude Code, and the card says so instead of guessing.
+
+### Changed
+- Redesigned agents screen: a row of installed agents that lights up while one is working, running sessions as
+  cards with a clear status, and agent logos in the chat header.
+- Opening a conversation jumps to the latest message and keeps following new ones while you are at the bottom.
+- Approval prompts in tmux/herdr sessions pick the right choice by reading the options on screen (for example
+  Claude Code's "trust this folder" dialog, where the default is "No").
+
+### Fixed
+- Deleting a chat sometimes left its folder behind on the server.
+
 ## [0.10.2] - 2026-11-04
 
 ### Changed

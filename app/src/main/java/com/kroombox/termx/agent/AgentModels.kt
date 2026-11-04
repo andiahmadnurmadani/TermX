@@ -84,6 +84,29 @@ data class RunningAgent(
 
 data class RunningInfo(val agents: List<RunningAgent>, val herdrBin: String)
 
+/** Akun, kuota & pemakaian satu provider (hasil `agentd.py usage`). */
+data class ProviderUsage(
+    val agent: String,
+    val name: String,
+    /** Agent ini punya sumber data pemakaian yang dibaca TermX. */
+    val reported: Boolean,
+    val loggedIn: Boolean?,
+    /** Claude: "claude.ai" (langganan) / "apiKey" / dll.; Codex: teks `codex login status`. */
+    val authMethod: String,
+    val plan: String,
+    val provider: String,
+    val account: String,
+    val org: String,
+    val loginExpires: String,
+    val limits: List<LimitWindow>,
+    val limitsAt: Long,
+    val stats: List<Pair<String, String>>,
+    val cost: Double,
+    val tokensIn: Long,
+    val tokensOut: Long,
+    val chats: Int,
+)
+
 /** Jendela kuota resmi dari provider (mis. Claude: five_hour, seven_day). */
 data class LimitWindow(val key: String, val used: Double?, val resetEpochSec: Long?, val status: String?)
 
