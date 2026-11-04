@@ -39,6 +39,8 @@ class TerminalSession(
     private val manager: SessionManager,
     scrollback: Int,
     private val scope: CoroutineScope,
+    /** Perintah awal pengganti startup host (mis. menjalankan AI agent di folder tertentu). */
+    private val startupOverride: String? = null,
 ) {
     var host: Host = initialHost
         private set
@@ -154,7 +156,7 @@ class TerminalSession(
             try {
                 host = manager.latestHost(host.id) ?: host
                 val conn = manager.connectionFor(host.id)
-                val command = tmuxName?.let { Tmux.attachCommand(it, host.tmuxMouse, host.startupCommand) }
+                val command = tmuxName?.let { Tmux.attachCommand(it, host.tmuxMouse, startupOverride ?: host.startupCommand) }
                 val (s, _) = conn.openShell(cols, rows, command)
                 session = s
                 output = s.outputStream
@@ -177,9 +179,10 @@ class TerminalSession(
                 everConnected = true
                 attempt = 0
                 manager.onSessionConnected(this)
-                if (tmuxName == null && !startupSent && host.startupCommand.isNotBlank()) {
+                val startup = startupOverride ?: host.startupCommand
+                if (tmuxName == null && !startupSent && startup.isNotBlank()) {
                     startupSent = true
-                    write((host.startupCommand.trimEnd() + "\r").toByteArray())
+                    write((startup.trimEnd() + "\r").toByteArray())
                 }
                 val eof = pump(s)
                 // Shell selesai: bedakan keluar normal (EOF dari server) vs koneksi putus (I/O error).

@@ -17,6 +17,7 @@ class AppContainer(app: Application) {
     val vault = Vault(app)
     val sessions = SessionManager(app, vault)
     val updater = Updater(app)
+    val agents = com.kroombox.termx.agent.AgentManager(app, sessions).also { a -> sessions.extraActive = { a.activeCount } }
 
     /** Mulai port forward yang ditandai "mulai otomatis". */
     fun startAutoForwards() {

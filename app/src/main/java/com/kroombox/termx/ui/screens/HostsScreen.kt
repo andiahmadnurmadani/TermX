@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -297,6 +298,7 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav) {
                     OsCatalog.byId(host.osId)?.let { os -> Tag(os.title, Palette.TextDim) }
                     if (host.persistentSession) Tag("tmux · ${host.tmuxSessionName}", Palette.TextDim)
                     if (host.jumpHostId != null) Tag(stringResource(R.string.hosts_via_jump), Palette.TextDim)
+                    if (com.kroombox.termx.net.Tailscale.isTailnetAddress(host.hostname)) Tag("Tailscale", Palette.Blue)
                     host.tags.take(2).forEach { Tag(it, Palette.TextDim) }
                 }
             }
@@ -348,6 +350,8 @@ private fun HostMenu(host: Host, expanded: Boolean, onDismiss: () -> Unit, nav: 
             onClick = { onDismiss(); nav.sftp(host.id) })
         DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_monitor)) }, leadingIcon = { Icon(Icons.Rounded.Speed, null) },
             onClick = { onDismiss(); nav.monitor(host.id) })
+        DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_agents)) }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
+            onClick = { onDismiss(); nav.agents(host.id) })
         DropdownMenuItem(text = { Text(stringResource(R.string.hosts_menu_forwarding)) }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) },
             onClick = { onDismiss(); nav.forwards(host.id) })
         HorizontalDivider()

@@ -3,6 +3,27 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.0] - 2026-11-04
+
+### Added
+- AI agents. Open a host's menu and pick AI agents to chat with the coding agents installed on that server:
+  Claude Code, Codex, opencode, Hermes, pi and oh-my-pi get a full chat view; other agents (Gemini CLI, Qwen,
+  aider, goose, crush) open in a terminal tab. The agent runs on the server with its own login or API key;
+  TermX only sends your messages and never sees credentials.
+- The chat view streams replies with Markdown, code blocks and tables, shows tool calls (commands, file reads,
+  edits as diffs, to-do lists) and asks for approval with Deny / Always / Allow. Plans can be approved before
+  the agent starts.
+- Switch model and permission mode from the composer, use the agent's `/` commands, and see context use,
+  tokens, cost per turn and, for Claude, the 5-hour and weekly plan limits.
+- Conversations keep running on the server when you leave the app or lose signal. TermX reconnects and picks up
+  where it stopped, and sends a notification when an agent needs approval or finishes.
+- "Log in in terminal" and "Continue in terminal" open the agent in its own tmux window in the project folder.
+- Tailscale hint: hosts on a Tailscale address (100.64.0.0/10 or `*.ts.net`) get a Tailscale tag, and if the
+  Tailscale VPN is off on the phone TermX says so before connecting, with a button to open Tailscale.
+
+### Requirements
+- AI agents need `python3` on the server. TermX installs a small helper at `~/.termx/agentd.py`.
+
 ## [0.9.0] - 2026-11-03
 
 ### Added

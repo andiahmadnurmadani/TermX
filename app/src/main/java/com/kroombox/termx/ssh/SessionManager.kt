@@ -178,6 +178,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
         forcePlain: Boolean = false,
         historyKey: String? = null,
         loadHistory: Boolean = false,
+        startup: String? = null,
     ): TerminalSession? {
         val host = vault.host(hostId) ?: return null
         val tmux = when {
@@ -187,7 +188,7 @@ class SessionManager(private val context: Context, val vault: Vault) {
             else -> null
         }
         val sid = newId()
-        val s = TerminalSession(sid, host, tmux, this, vault.current.settings.scrollbackLines, scope)
+        val s = TerminalSession(sid, host, tmux, this, vault.current.settings.scrollbackLines, scope, startup)
         s.historyKey = historyKey ?: if (tmux != null) history.key(host.id, tmux) else history.plainKey(host.id, sid)
         // Riwayat sebelumnya hanya untuk sesi yang dibuka lagi (bukan terminal baru dari host).
         if (loadHistory) history.load(s.historyKey)?.let { saved ->
@@ -431,8 +432,11 @@ class SessionManager(private val context: Context, val vault: Vault) {
         get() = _sessions.value.count { it.state.value == SessionState.CONNECTED || it.state.value == SessionState.RECONNECTING || it.state.value == SessionState.CONNECTING } +
             _sftpSessions.value.size
 
+    /** Pemakai koneksi lain yang perlu service tetap hidup (chat AI agent). */
+    @Volatile var extraActive: () -> Int = { 0 }
+
     fun refreshService() {
-        val needed = activeSessionCount > 0 || forwards.activeCount > 0
+        val needed = activeSessionCount > 0 || forwards.activeCount > 0 || extraActive() > 0
         mainHandler.post {
             if (needed) SessionService.start(context) else SessionService.stop(context)
         }

@@ -63,6 +63,11 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             ACTION_CONFIRM_DISCONNECT -> TermXApp.container.sessions.disconnectRequested.value = true
             ACTION_SHOW_UPDATE -> TermXApp.container.updater.showPrompt()
+            ACTION_OPEN_AGENT -> {
+                val host = intent.getStringExtra(EXTRA_HOST)
+                val chat = intent.getStringExtra(EXTRA_CHAT)
+                if (host != null && chat != null) TermXApp.container.agents.pendingOpen.value = host to chat
+            }
         }
     }
 
@@ -75,6 +80,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_CONFIRM_DISCONNECT = "com.kroombox.termx.CONFIRM_DISCONNECT"
         const val ACTION_SHOW_UPDATE = "com.kroombox.termx.SHOW_UPDATE"
+        const val ACTION_OPEN_AGENT = "com.kroombox.termx.OPEN_AGENT"
+        const val EXTRA_HOST = "host"
+        const val EXTRA_CHAT = "chat"
     }
 
     fun setKeepScreenOn(on: Boolean) {

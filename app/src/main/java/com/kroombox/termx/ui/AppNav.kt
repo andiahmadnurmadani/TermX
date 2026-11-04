@@ -82,6 +82,8 @@ object Routes {
     const val FORWARDS = "forwards?hostId={hostId}"
     const val KNOWN_HOSTS = "known_hosts"
     const val SETTINGS = "settings"
+    const val AGENTS = "agents/{hostId}"
+    const val AGENT_CHAT = "agent/{hostId}/{chatId}"
 
     fun hostEdit(id: String? = null) = if (id == null) "host_edit" else "host_edit?id=$id"
     fun terminal(sessionId: String) = "terminal?session=$sessionId"
@@ -93,20 +95,37 @@ object Routes {
         "editor/$hostId?path=${android.net.Uri.encode(path)}&new=$isNew"
     fun monitor(hostId: String) = "monitor/$hostId"
     fun forwards(hostId: String? = null) = if (hostId == null) "forwards" else "forwards?hostId=$hostId"
+    fun agents(hostId: String) = "agents/$hostId"
+    fun agentChat(hostId: String, chatId: String) = "agent/$hostId/$chatId"
 }
 
 /** Aksi navigasi yang dibagikan ke semua layar. */
-class Nav(private val nav: NavHostController) {
+class Nav(private val nav: NavHostController, private val context: android.content.Context) {
+    /** Info Tailscale dulu bila host lewat tailnet dan VPN belum aktif. */
+    private fun guarded(hostId: String, action: () -> Unit) {
+        val vault = TermXApp.container.vault
+        com.kroombox.termx.net.Tailscale.guard(context, vault.host(hostId), { vault.host(it) }, action)
+    }
+
     fun back() { if (nav.previousBackStackEntry != null) nav.popBackStack() }
     fun editHost(id: String? = null) = nav.navigate(Routes.hostEdit(id))
     fun terminal(sessionId: String) = nav.navigate(Routes.terminal(sessionId)) { launchSingleTop = true }
     /** Buka (atau lanjutkan) sesi SFTP ke host; sesi tampil di tab Sesi sampai ditutup. */
-    fun sftp(hostId: String, path: String? = null, sid: String? = null) {
+    fun sftp(hostId: String, path: String? = null, sid: String? = null) = guarded(hostId) {
         val s = TermXApp.container.sessions.openSftp(hostId, path, sid)
         nav.navigate(Routes.sftp(hostId, s.path.ifEmpty { path ?: "" }.ifEmpty { null }, s.id)) { launchSingleTop = true }
     }
     fun editor(hostId: String, path: String, isNew: Boolean = false) = nav.navigate(Routes.editor(hostId, path, isNew))
-    fun monitor(hostId: String) = nav.navigate(Routes.monitor(hostId))
+    fun monitor(hostId: String) = guarded(hostId) { nav.navigate(Routes.monitor(hostId)) }
+    fun agents(hostId: String) = guarded(hostId) { nav.navigate(Routes.agents(hostId)) }
+    fun agentChat(hostId: String, chatId: String) = nav.navigate(Routes.agentChat(hostId, chatId)) { launchSingleTop = true }
+
+    /** Jalankan agent (atau login-nya) di tab terminal tmux tersendiri, di folder [cwd]. */
+    fun agentTerminal(hostId: String, name: String, command: String, cwd: String) {
+        val dir = if (cwd == "~" || cwd.isBlank()) "~" else com.kroombox.termx.agent.shq(cwd)
+        val s = TermXApp.container.sessions.openTerminal(hostId, tmuxOverride = "ai-$name", startup = "cd $dir && $command") ?: return
+        terminal(s.id)
+    }
     fun forwards(hostId: String? = null) = nav.navigate(Routes.forwards(hostId))
     fun knownHosts() = nav.navigate(Routes.KNOWN_HOSTS)
     fun settings() = nav.navigate(Routes.SETTINGS)
@@ -118,8 +137,8 @@ class Nav(private val nav: NavHostController) {
         plain: Boolean = false,
         historyKey: String? = null,
         loadHistory: Boolean = false,
-    ) {
-        val s = TermXApp.container.sessions.openTerminal(hostId, tmux, plain, historyKey, loadHistory) ?: return
+    ) = guarded(hostId) {
+        val s = TermXApp.container.sessions.openTerminal(hostId, tmux, plain, historyKey, loadHistory) ?: return@guarded
         terminal(s.id)
     }
 }
@@ -127,7 +146,8 @@ class Nav(private val nav: NavHostController) {
 @Composable
 fun AppRoot() {
     val navController = rememberNavController()
-    val nav = remember(navController) { Nav(navController) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    val nav = remember(navController) { Nav(navController, appContext) }
 
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) { HomeScaffold(nav) }
@@ -171,12 +191,56 @@ fun AppRoot() {
         ) { ForwardsScreen(nav, it.arguments?.getString("hostId")) }
         composable(Routes.KNOWN_HOSTS) { KnownHostsScreen(nav) }
         composable(Routes.SETTINGS) { SettingsScreen(nav) }
+        composable(Routes.AGENTS, arguments = listOf(navArgument("hostId") { type = NavType.StringType })) {
+            com.kroombox.termx.ui.screens.AgentHomeScreen(nav, it.arguments?.getString("hostId") ?: "")
+        }
+        composable(
+            Routes.AGENT_CHAT,
+            arguments = listOf(navArgument("hostId") { type = NavType.StringType }, navArgument("chatId") { type = NavType.StringType }),
+        ) {
+            com.kroombox.termx.ui.screens.AgentChatScreen(nav, it.arguments?.getString("hostId") ?: "", it.arguments?.getString("chatId") ?: "")
+        }
     }
+
+    // Dibuka dari notifikasi agent.
+    val pendingAgent by TermXApp.container.agents.pendingOpen.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(pendingAgent) {
+        pendingAgent?.let { (h, c) ->
+            TermXApp.container.agents.pendingOpen.value = null
+            nav.agentChat(h, c)
+        }
+    }
+    TailscalePrompt()
 
     PromptHost()
     BatteryPrompt()
     DisconnectAllPrompt()
     com.kroombox.termx.ui.screens.UpdatePrompt()
+}
+
+@Composable
+private fun TailscalePrompt() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val p by com.kroombox.termx.net.Tailscale.pending.collectAsState()
+    val pending = p ?: return
+    val ts = com.kroombox.termx.net.Tailscale
+    fun dismiss() { ts.pending.value = null }
+    AlertDialog(
+        onDismissRequest = { dismiss() },
+        title = { Text(stringResource(R.string.ts_title)) },
+        text = { Text(stringResource(if (ts.isInstalled(context)) R.string.ts_message else R.string.ts_message_install, pending.hostLabel)) },
+        confirmButton = {
+            TextButton(onClick = { dismiss(); runCatching { ts.open(context) } }) {
+                Text(stringResource(if (ts.isInstalled(context)) R.string.ts_open else R.string.ts_install), fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { dismiss() }) { Text(stringResource(R.string.nav_cancel)) }
+                TextButton(onClick = { dismiss(); pending.proceed() }) { Text(stringResource(R.string.ts_connect_anyway)) }
+            }
+        },
+    )
 }
 
 @Composable
