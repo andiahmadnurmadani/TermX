@@ -212,9 +212,22 @@ private fun modeLabel(id: String): String = when (id) {
     else -> id.replaceFirstChar { it.uppercase() }
 }
 
+/** Pilihan untuk id model: alias ("opus"), "" = default, atau id lengkap ("claude-opus-5-5"). */
+private fun modelChoice(id: String, choices: List<Choice>): Choice? =
+    choices.firstOrNull { it.id == id || (id.isBlank() && it.id == "default") }
+        ?: choices.firstOrNull { id.isNotBlank() && it.resolved == id && it.id != "default" }
+        ?: choices.firstOrNull { id.isNotBlank() && it.resolved.isNotBlank() && id.startsWith(it.resolved) && it.id != "default" }
+
 private fun modelLabel(id: String, choices: List<Choice>): String =
-    choices.firstOrNull { it.id == id || (id.isBlank() && it.id == "default") }?.name?.ifBlank { null }
-        ?: id.ifBlank { S.get(R.string.agent_default) }
+    modelChoice(id, choices)?.name?.ifBlank { null } ?: prettyModelId(id).ifBlank { S.get(R.string.agent_default) }
+
+/** "claude-opus-5-5" → "Opus 5.5" bila daftar model belum ada; alias "opus" → "Opus". */
+internal fun prettyModelId(id: String): String {
+    val m = Regex("^claude-(opus|sonnet|haiku|fable)-(\\d+)(?:-(\\d{1,2}))?(?:-\\d{8})?(\\[1m\\])?$").find(id)
+        ?: return if (id in setOf("opus", "sonnet", "haiku", "fable")) id.replaceFirstChar { it.uppercase() } else id
+    val (fam, major, minor, ctx) = m.destructured
+    return fam.replaceFirstChar { it.uppercase() } + " " + major + (if (minor.isNotEmpty()) ".$minor" else "") + (if (ctx.isNotEmpty()) " (1M)" else "")
+}
 
 /** Nama level effort untuk tampilan. */
 private fun effortLabel(id: String, choices: List<Choice> = emptyList()): String = when (id) {
@@ -229,7 +242,7 @@ private fun effortLabel(id: String, choices: List<Choice> = emptyList()): String
 
 /** Level effort untuk model terpilih: dari daftar model (per model) bila ada, selain itu dari agent. */
 private fun effortsFor(model: String, models: List<Choice>, agentLevel: List<Choice>): List<Choice> {
-    val m = models.firstOrNull { it.id == model || (model.isBlank() && it.id == "default") }
+    val m = modelChoice(model, models)
     return when {
         m != null && m.efforts.isNotEmpty() -> m.efforts.map { Choice(it, effortLabel(it)) }
         m != null && models.any { it.efforts.isNotEmpty() } -> emptyList() // model ini tidak mendukung effort
@@ -1519,6 +1532,7 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                                 item,
                                 onAnswer = { p, allow, always -> chat.answer(p.key.removePrefix("p"), allow, always) },
                                 onLogin = if (agent != null) ({ openTerminal(true) }) else null,
+                                models = modelChoices,
                             )
                         }
                     }
@@ -1745,7 +1759,7 @@ internal fun WorkingRow(state: ChatState, agentId: String? = null) {
 // ------------------------------------------------------------------------ item chat
 
 @Composable
-internal fun ChatItemView(item: ChatItem, onAnswer: (PermItem, Boolean, Boolean) -> Unit, onLogin: (() -> Unit)?) {
+internal fun ChatItemView(item: ChatItem, onAnswer: (PermItem, Boolean, Boolean) -> Unit, onLogin: (() -> Unit)?, models: List<Choice> = emptyList()) {
     when (item) {
         is UserItem -> UserBubble(item)
         is TextItem -> {
@@ -1755,7 +1769,7 @@ internal fun ChatItemView(item: ChatItem, onAnswer: (PermItem, Boolean, Boolean)
         is ToolItem -> ToolRow(item)
         is PermItem -> PermCard(item, onAnswer)
         is NoteItem -> NoteRow(item, onLogin)
-        is TurnItem -> TurnFooter(item, onLogin)
+        is TurnItem -> TurnFooter(item, onLogin, models)
         is ScreenItem -> ScreenCard(item)
     }
 }
@@ -2006,7 +2020,7 @@ private fun LoginHint(detail: String, onLogin: (() -> Unit)?) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TurnFooter(item: TurnItem, onLogin: (() -> Unit)?) {
+private fun TurnFooter(item: TurnItem, onLogin: (() -> Unit)?, models: List<Choice> = emptyList()) {
     Column(Modifier.fillMaxWidth()) {
         if (!item.ok && item.error != null) {
             if (looksLikeLogin(item.error)) LoginHint(item.error, onLogin)
@@ -2014,7 +2028,7 @@ private fun TurnFooter(item: TurnItem, onLogin: (() -> Unit)?) {
             Spacer(Modifier.height(6.dp))
         }
         val parts = buildList {
-            item.model?.let { add(Icons.Rounded.Memory to it) }
+            item.model?.let { add(Icons.Rounded.Memory to modelLabel(it, models)) }
             if (item.tokensIn > 0 || item.tokensOut > 0) add(Icons.Rounded.SwapVert to "${formatTokens(item.tokensIn)} / ${formatTokens(item.tokensOut)}")
             if (item.cost > 0) add(Icons.Rounded.Payments to formatCost(item.cost))
             if (item.ms > 0) add(Icons.Rounded.Schedule to String.format(Locale.US, "%.1fs", item.ms / 1000.0))
@@ -2190,7 +2204,7 @@ private fun ModelChip(
                 FieldLabel(stringResource(R.string.agent_field_model))
                 Column(Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.SurfaceHigh)) {
                     models.forEach { c ->
-                        val sel = c.id == model || (model.isBlank() && c.id == "default")
+                        val sel = c.id == model || (model.isBlank() && c.id == "default") || (c == modelChoice(model, models))
                         Row(
                             Modifier.fillMaxWidth().clickable { if (!sel) onModel(c.id) }.padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,

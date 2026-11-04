@@ -219,7 +219,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     it.arr("model_list")?.mapNotNull { m ->
                         (m as? JsonObject)?.let { c ->
                             Choice(c.str("id"), c.str("name"), c.str("desc"),
-                                c.arr("efforts")?.mapNotNull { x -> (x as? JsonPrimitive)?.content } ?: emptyList())
+                                c.arr("efforts")?.mapNotNull { x -> (x as? JsonPrimitive)?.content } ?: emptyList(), c.str("resolved"))
                         }
                     } ?: emptyList(),
                 )

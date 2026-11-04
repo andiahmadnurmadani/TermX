@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 
-VERSION = 17
+VERSION = 18
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -235,6 +235,13 @@ def cmd_detect(_args):
             "efforts": CLAUDE_EFFORTS if a["id"] == "claude" else [],
             "model_list": _claude_models_cached() if a["id"] == "claude" else [],
         })
+    if any(a["id"] == "claude" for a, _ in bins) and _claude_models_stale():
+        try:  # tidak ditunggu: detect berikutnya membawa daftar model lengkap
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), "_claude_models"], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                             creationflags=(NO_WINDOW | 0x00000200) if WIN else 0, start_new_session=not WIN)
+        except OSError:
+            pass
     print(jdump({"v": VERSION, "agents": found, "tmux": bool(shutil.which("tmux"))}))
 
 
@@ -890,7 +897,7 @@ def _claude_models_from_init(models):
         if m.get("resolvedModel") and m.get("resolvedModel") != m.get("value"):
             desc = (desc + " · " if desc else "") + str(m["resolvedModel"])
         out.append({"id": str(m["value"]), "name": str(m.get("displayName") or m["value"]),
-                    "desc": clip(desc, 160), "efforts": eff})
+                    "desc": clip(desc, 160), "efforts": eff, "resolved": str(m.get("resolvedModel") or "")})
     return out[:300]
 
 
@@ -913,6 +920,53 @@ def _claude_models_save(items):
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+def _claude_models_probe(timeout=30):
+    """Daftar model dari Claude Code di host ini: hanya `initialize` (tanpa pesan, tanpa memakai kuota)."""
+    env_path()
+    binp = first_bin("claude")
+    if not binp:
+        return []
+    try:
+        p = subprocess.Popen([binp, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"],
+                             cwd=os.path.expanduser("~"), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    except OSError:
+        return []
+    timer = threading.Timer(timeout, p.kill)
+    timer.start()
+    try:
+        p.stdin.write(jdump({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize"}}) + "\n")
+        p.stdin.flush()
+        for line in p.stdout:
+            try:
+                o = json.loads(line)
+            except ValueError:
+                continue
+            r = o.get("response") or {}
+            if o.get("type") == "control_response" and r.get("request_id") == "init":
+                items = _claude_models_from_init((r.get("response") or {}).get("models"))
+                if items:
+                    _claude_models_save(items)
+                return items
+        return []
+    except Exception:  # noqa: BLE001
+        return []
+    finally:
+        timer.cancel()
+        try:
+            p.kill()
+            p.wait(5)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _claude_models_stale():
+    try:
+        return time.time() - os.path.getmtime(_claude_models_path()) > 24 * 3600
+    except OSError:
+        return True
 
 
 def _emit_claude_choices(w, current_model=None):
@@ -2478,16 +2532,81 @@ def _bridge_path():
     return os.path.join(os.path.expanduser("~"), ".termx", "winbridge.json")
 
 
+def _bridge_log_path():
+    return os.path.join(os.path.expanduser("~"), ".termx", "winbridge.log")
+
+
+def _bridge_ping(b, timeout=3):
+    try:
+        with socket.create_connection(("127.0.0.1", int(b["port"])), timeout=timeout) as c:
+            c.sendall((b["token"] + "\n" + jdump({"op": "ping"}) + "\n").encode("utf-8"))
+            return json.loads(c.makefile("r", encoding="utf-8", errors="replace").readline() or "{}").get("ok") is True
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def _bridge_info():
-    """Jembatan konsol yang sedang hidup (versi sama), atau None."""
+    """Jembatan konsol yang hidup (versi sama, menjawab ping), atau None.
+
+    Dicek lewat sambungan, bukan OpenProcess: proses jembatan ada di sesi Windows lain (desktop)."""
     try:
         with open(_bridge_path(), encoding="utf-8") as f:
             b = json.load(f)
     except (OSError, ValueError):
         return None
-    if b.get("v") != VERSION or not _pid_alive(int(b.get("pid") or 0)):
+    if b.get("v") != VERSION or not _bridge_ping(b):
         return None
     return b
+
+
+def _bridge_task_xml(command, arguments):
+    """Tugas Task Scheduler: jalan di sesi desktop pengguna (InteractiveToken), juga saat memakai baterai."""
+    from xml.sax.saxutils import escape
+    user = os.environ.get("USERNAME") or ""
+    dom = os.environ.get("USERDOMAIN") or ""
+    uid = (dom + "\\" + user) if dom and user else user
+    return ('<?xml version="1.0" encoding="UTF-16"?>\n'
+            '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+            '  <RegistrationInfo><Description>TermX console bridge: lets TermX type into agent terminals on this PC.</Description></RegistrationInfo>\n'
+            '  <Principals><Principal id="Author"><UserId>%s</UserId><LogonType>InteractiveToken</LogonType>'
+            '<RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n'
+            '  <Settings>\n'
+            '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n'
+            '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n'
+            '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n'
+            '    <AllowHardTerminate>true</AllowHardTerminate>\n'
+            '    <StartWhenAvailable>false</StartWhenAvailable>\n'
+            '    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>\n'
+            '    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>\n'
+            '    <AllowStartOnDemand>true</AllowStartOnDemand>\n'
+            '    <Enabled>true</Enabled>\n'
+            '    <Hidden>true</Hidden>\n'
+            '    <RunOnlyIfIdle>false</RunOnlyIfIdle>\n'
+            '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>\n'
+            '    <Priority>7</Priority>\n'
+            '  </Settings>\n'
+            '  <Actions Context="Author"><Exec><Command>%s</Command><Arguments>%s</Arguments></Exec></Actions>\n'
+            '</Task>\n') % (escape(uid), escape(command), escape(arguments))
+
+
+def _bridge_diag():
+    """Keterangan singkat mengapa jembatan tidak hidup: status tugas + akhir log jembatan."""
+    out = []
+    try:
+        q = subprocess.run(["schtasks", "/query", "/tn", BRIDGE_TASK, "/v", "/fo", "list"], capture_output=True,
+                           text=True, errors="replace", timeout=20, creationflags=0x08000000)
+        for line in (q.stdout or "").splitlines():
+            if re.search(r"(Status|Result|Hasil|Last Run|Terakhir)", line, re.I):
+                out.append(" ".join(line.split()))
+    except Exception as e:  # noqa: BLE001
+        out.append("task query failed: %s" % e)
+    try:
+        with open(_bridge_log_path(), encoding="utf-8", errors="replace") as f:
+            tail = [l.strip() for l in f.read().splitlines() if l.strip()][-3:]
+        out += ["log: " + l for l in tail]
+    except OSError:
+        out.append("bridge log: none (the task did not run python)")
+    return "; ".join(out)[-600:]
 
 
 def _bridge_start():
@@ -2498,22 +2617,30 @@ def _bridge_start():
         os.remove(_bridge_path())  # jembatan lama berhenti sendiri bila berkasnya bukan miliknya lagi
     except OSError:
         pass
-    tr = '"%s" "%s" _winbridge' % (pyw, os.path.abspath(__file__))
     flags = 0x08000000  # CREATE_NO_WINDOW
-    c = subprocess.run(["schtasks", "/create", "/tn", BRIDGE_TASK, "/tr", tr, "/sc", "once", "/st", "00:00",
-                        "/it", "/f"], capture_output=True, text=True, errors="replace", timeout=30, creationflags=flags)
+    xml = os.path.join(os.path.expanduser("~"), ".termx", "winbridge-task.xml")
+    os.makedirs(os.path.dirname(xml), exist_ok=True)
+    with open(xml, "w", encoding="utf-16") as f:
+        f.write(_bridge_task_xml(pyw, '"%s" _winbridge' % os.path.abspath(__file__)))
+    c = subprocess.run(["schtasks", "/create", "/tn", BRIDGE_TASK, "/xml", xml, "/f"], capture_output=True, text=True,
+                       errors="replace", timeout=30, creationflags=flags)
+    if c.returncode != 0:  # cadangan: bentuk lama (tanpa XML)
+        tr = '"%s" "%s" _winbridge' % (pyw, os.path.abspath(__file__))
+        c = subprocess.run(["schtasks", "/create", "/tn", BRIDGE_TASK, "/tr", tr, "/sc", "once", "/st", "00:00", "/it", "/f"],
+                           capture_output=True, text=True, errors="replace", timeout=30, creationflags=flags)
     if c.returncode != 0:
         raise RuntimeError("cannot create the TermX console bridge task: " + (c.stderr or c.stdout).strip()[-200:])
     r = subprocess.run(["schtasks", "/run", "/tn", BRIDGE_TASK], capture_output=True, text=True,
                        errors="replace", timeout=30, creationflags=flags)
     if r.returncode != 0:
         raise RuntimeError("cannot start the TermX console bridge: " + (r.stderr or r.stdout).strip()[-200:])
-    for _ in range(100):
+    for _ in range(200):
         b = _bridge_info()
         if b:
             return b
         time.sleep(0.1)
-    raise RuntimeError("the TermX console bridge did not start; is this Windows user signed in on the desktop?")
+    raise RuntimeError("the TermX console bridge did not start (%s). The Windows user must be signed in on the "
+                       "desktop of that PC." % _bridge_diag())
 
 
 def _bridge_call(pid, op, payload):
@@ -2539,6 +2666,24 @@ def _bridge_call(pid, op, payload):
 
 def cmd_winbridge(args):
     """_winbridge: berjalan di sesi desktop (Task Scheduler) dan meneruskan _wincon dari sesi SSH."""
+    try:
+        os.makedirs(os.path.dirname(_bridge_log_path()), exist_ok=True)
+        log = open(_bridge_log_path(), "a", encoding="utf-8", buffering=1)
+    except OSError:
+        log = None
+    if log:
+        sys.stderr = log  # pythonw tidak punya stderr: galat tetap tercatat
+        log.write("%s start pid=%d v=%s exe=%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), os.getpid(), VERSION, sys.executable))
+    try:
+        _winbridge_serve()
+    except Exception:
+        import traceback
+        if log:
+            log.write(traceback.format_exc())
+        raise
+
+
+def _winbridge_serve():
     tok = uuid.uuid4().hex
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.bind(("127.0.0.1", 0))
@@ -2560,6 +2705,10 @@ def cmd_winbridge(args):
             if f.readline().decode("utf-8", "replace").strip() != tok:
                 return
             req = json.loads(f.readline().decode("utf-8", "replace") or "{}")
+            if req.get("op") == "ping":
+                f.write(b'{"ok":true}\n')
+                f.flush()
+                return
             with lock:
                 code, out, err = _wincon_direct(int(req.get("pid") or 0), str(req.get("op") or ""),
                                                 req.get("payload") or {})
@@ -2902,6 +3051,11 @@ class MirrorAdapter:
         self.lock = threading.Lock()
         if self.agent == "claude":
             _emit_claude_choices(w)
+            if _claude_models_stale():
+                def refresh():
+                    if _claude_models_probe():
+                        _emit_claude_choices(w)
+                threading.Thread(target=refresh, daemon=True).start()
         threading.Thread(target=self._loop, daemon=True).start()
 
     # -- target
@@ -4034,7 +4188,7 @@ COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
     "hermes-setup": cmd_hermes_setup, "wrap": cmd_wrap, "shell-setup": cmd_shell_setup,
-    "post": cmd_post, "isdir": cmd_isdir, "update": cmd_update, "_wincon": cmd_wincon, "_winbridge": cmd_winbridge, "wport": cmd_wport,
+    "post": cmd_post, "isdir": cmd_isdir, "update": cmd_update, "_claude_models": lambda _a: _claude_models_probe(), "_wincon": cmd_wincon, "_winbridge": cmd_winbridge, "wport": cmd_wport,
 }
 
 

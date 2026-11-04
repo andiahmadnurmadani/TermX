@@ -119,7 +119,7 @@ data class LimitWindow(val key: String, val used: Double?, val resetEpochSec: Lo
 data class SlashCommand(val name: String, val desc: String, val hint: String)
 
 /** Pilihan model/mode/effort. [efforts] = level effort yang didukung model ini (kosong = tanpa effort). */
-data class Choice(val id: String, val name: String, val desc: String = "", val efforts: List<String> = emptyList())
+data class Choice(val id: String, val name: String, val desc: String = "", val efforts: List<String> = emptyList(), val resolved: String = "")
 
 /** Hasil `agentd.py update <agent>`. */
 data class AgentUpdate(val ok: Boolean, val before: String, val after: String, val output: String)
@@ -259,7 +259,7 @@ class ChatReducer {
                 models = o.arr("list")?.mapNotNull { e ->
                     (e as? JsonObject)?.let {
                         Choice(it.str("id"), it.str("name"), it.str("desc"),
-                            it.arr("efforts")?.mapNotNull { x -> (x as? JsonPrimitive)?.content } ?: emptyList())
+                            it.arr("efforts")?.mapNotNull { x -> (x as? JsonPrimitive)?.content } ?: emptyList(), it.str("resolved"))
                     }
                 } ?: emptyList(),
                 model = o.str("current").ifEmpty { state.model },

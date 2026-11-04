@@ -3,6 +3,12 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.19] - 2026-11-04
+
+### Fixed
+- Windows console bridge "did not start": the Task Scheduler task is now created from XML so it also runs on battery power (schtasks' default refuses to start on battery), with no time limit and hidden. The bridge is checked by connecting to it instead of opening its process from the SSH session, writes a log to `~/.termx/winbridge.log`, and a failure now reports the task status and the log tail.
+- Model names are clear everywhere: TermX asks Claude Code on each host for its model list (initialize only, no prompt, no usage), so sessions in a Windows terminal also show "Opus 5.5", "Sonnet 5.5", "Fable 5.1" and so on instead of "sonnet". Full ids such as `claude-opus-5-5` in the chip and in each reply's footer are shown as "Opus 5.5".
+
 ## [0.10.18] - 2026-11-04
 
 ### Added
