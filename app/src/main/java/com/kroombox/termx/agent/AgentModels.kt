@@ -362,13 +362,35 @@ class ChatReducer {
 }
 
 /** Provider yang dikenal Hermes (dari registri Hermes sendiri di server). */
-data class HermesProvider(val id: String, val name: String, val env: String, val auth: String, val hasKey: Boolean) {
+data class HermesProvider(
+    val id: String, val name: String, val env: String, val auth: String, val hasKey: Boolean,
+    val loggedIn: Boolean = false,
+) {
     val usesKey: Boolean get() = auth == "api_key"
+    /** Bisa masuk lewat akun (OAuth) dari wizard: sama dengan `hermes auth add <id> --type oauth`. */
+    val canLogin: Boolean get() = id in HERMES_OAUTH
 }
+
+/** Provider yang mendukung login OAuth di Hermes (`_OAUTH_CAPABLE_PROVIDERS`). */
+val HERMES_OAUTH = setOf("anthropic", "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth")
+
+/** Endpoint custom yang pernah disimpan (custom_providers di config.yaml). */
+data class HermesCustom(val name: String, val baseUrl: String, val model: String, val apiMode: String, val hasKey: Boolean)
 
 data class HermesStatus(
     val provider: String, val model: String, val baseUrl: String, val activeOauth: String,
     val providers: List<HermesProvider>,
+    val apiMode: String = "",
+    val custom: List<HermesCustom> = emptyList(),
 ) {
     val configured: Boolean get() = (provider.isNotBlank() && model.isNotBlank()) || activeOauth.isNotBlank()
 }
+
+/** Hasil cek endpoint custom (probe /models milik Hermes). */
+data class HermesProbe(
+    val ok: Boolean, val models: List<String>, val probedUrl: String, val resolvedBaseUrl: String,
+    val suggestedBaseUrl: String, val usedFallback: Boolean, val defaultName: String,
+)
+
+/** Layar proses login OAuth yang berjalan di server. */
+data class HermesLogin(val running: Boolean, val lines: List<String>, val urls: List<String>, val codes: List<String>)

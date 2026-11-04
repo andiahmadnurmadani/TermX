@@ -797,7 +797,7 @@ internal fun FlowAgents(chat: List<AgentInfo>, term: List<AgentInfo>, onTap: (Ag
 }
 
 /** Warna merek agent (dipakai untuk logo & monogram). */
-private fun agentColor(id: String): Color = when (id) {
+internal fun agentColor(id: String): Color = when (id) {
     "claude" -> Color(0xFFD97757)
     "codex", "opencode", "goose" -> Color(0xFFE6EDF3)
     "antigravity" -> Color(0xFF4F8DF7)
@@ -814,7 +814,7 @@ private val DETECT_LOGOS = listOf("claude", "opencode", "hermes", "antigravity",
 }
 
 /** Logo resmi agent (Lobe Icons) bila ada; selain itu monogram. */
-private fun agentLogo(id: String): Int? = when (id) {
+internal fun agentLogo(id: String): Int? = when (id) {
     "claude" -> R.drawable.ic_agent_claude
     "codex" -> R.drawable.ic_agent_codex
     "opencode" -> R.drawable.ic_agent_opencode

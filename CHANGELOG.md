@@ -3,6 +3,18 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.7] - 2026-11-04
+
+### Added
+- Hermes setup: custom endpoints, the same flow as `hermes model`. Enter a base URL, an optional key, the API mode, a display name and a context length. The app detects the endpoint's models and suggests a working URL (e.g. adding `/v1`). Saved endpoints show up in the provider list.
+- Hermes setup: sign in to OAuth providers (Anthropic, Nous, OpenAI Codex, xAI, Qwen, MiniMax) from the app. TermX runs `hermes auth add --type oauth` on the server and shows the sign-in link and code with open/copy buttons. A pasted code is sent over stdin.
+- Hermes model list: shows all models, not just the first 300. It merges Hermes' catalog with the provider's live `/models` list when a key is available, and shows the model count.
+
+### Fixed
+- Hermes setup: scrolling a list now scrolls the list instead of dragging the sheet, and there's a close button.
+- Host cards: agent and Tailscale logos peek above the top-right edge instead of being hidden behind the card.
+- Running agents are now detected on every host with a live connection, and the last result is kept for a while.
+
 ## [0.10.6] - 2026-11-04
 
 ### Added

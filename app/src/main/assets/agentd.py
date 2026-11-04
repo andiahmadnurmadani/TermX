@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 7
+VERSION = 8
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -1589,6 +1589,8 @@ def cmd_running(_args):
     keep = []
     for f in out:
         own = f.pop("owner", "")
+        if (f.get("tmux") or {}).get("session", "") == HERMES_AUTH_SESS:
+            continue  # login OAuth Hermes dari wizard, bukan agent yang berjalan
         if f["where"] == "termx":
             if own not in live:
                 continue  # chat sudah dihapus
@@ -2488,6 +2490,13 @@ import json, sys
 op = sys.argv[1]
 from hermes_cli import auth as A
 from hermes_cli import config as C
+OAUTH = ["anthropic", "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth"]
+def pooled(pid):
+    try:
+        from agent.credential_pool import load_pool
+        return bool(load_pool(pid).entries())
+    except Exception:
+        return False
 def provs():
     out = [{"id": "openrouter", "name": "OpenRouter", "env": "OPENROUTER_API_KEY", "base_url": "", "auth": "api_key"}]
     seen = set()
@@ -2513,27 +2522,121 @@ if op == "status":
         active = (A._load_auth_store() or {}).get("active_provider") or ""
     except Exception:
         active = ""
+    oauth = {}
+    for pid in OAUTH:
+        try:
+            oauth[pid] = bool((A.get_auth_status(pid) or {}).get("logged_in"))
+        except Exception:
+            oauth[pid] = False
+    custom = []
+    for c in (cfg.get("custom_providers") or []):
+        if isinstance(c, dict) and c.get("base_url"):
+            custom.append({"name": str(c.get("name") or ""), "base_url": str(c.get("base_url") or ""),
+                           "model": str(c.get("model") or ""), "api_mode": str(c.get("api_mode") or ""),
+                           "has_key": bool(c.get("api_key"))})
     print(json.dumps({"provider": str(m.get("provider") or ""), "model": str(m.get("default") or m.get("model") or ""),
-                      "base_url": str(m.get("base_url") or ""), "active_oauth": active, "providers": ps, "keys": keys}))
+                      "base_url": str(m.get("base_url") or ""), "api_mode": str(m.get("api_mode") or ""),
+                      "active_oauth": active, "providers": ps, "keys": keys, "oauth": oauth, "custom": custom}))
 elif op == "models":
-    from hermes_cli.models import provider_model_ids
+    # katalog Hermes, lalu digabung dengan daftar langsung dari /models endpoint provider bila ada kunci
+    from hermes_cli.models import provider_model_ids, probe_api_models
+    pid = sys.argv[2]
+    req = json.loads(sys.stdin.read() or "{}")
     try:
-        ids = provider_model_ids(sys.argv[2])
+        ids = [str(i) for i in (provider_model_ids(pid) or [])]
     except Exception:
         ids = []
-    print(json.dumps({"models": [str(i) for i in (ids or [])][:300]}))
+    live = False
+    info = next((p for p in provs() if p["id"] == pid), None)
+    if info and info["auth"] == "api_key":
+        key = str(req.get("key") or "").strip() or (C.get_env_value(info["env"]) if info["env"] else "") or ""
+        url = info["base_url"]
+        if pid == "openrouter":
+            from hermes_constants import OPENROUTER_BASE_URL
+            url = OPENROUTER_BASE_URL
+        if key and url.startswith("http"):
+            try:
+                got = (probe_api_models(key, url) or {}).get("models")
+            except Exception:
+                got = None
+            if got:
+                live = True
+                seen = set(ids)
+                ids += [str(i) for i in got if str(i) not in seen]
+    print(json.dumps({"models": ids[:3000], "live": live}))
+elif op == "probe":
+    req = json.loads(sys.stdin.read() or "{}")
+    url, key = str(req.get("base_url") or "").strip(), str(req.get("key") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        raise SystemExit("base URL must start with http:// or https://")
+    from hermes_cli.models import probe_api_models
+    from hermes_cli.main import _auto_provider_name
+    pr = probe_api_models(key, url) or {}
+    models = pr.get("models")
+    print(json.dumps({"ok": models is not None, "models": [str(i) for i in (models or [])][:3000],
+                      "probed_url": str(pr.get("probed_url") or ""), "resolved_base_url": str(pr.get("resolved_base_url") or ""),
+                      "suggested_base_url": str(pr.get("suggested_base_url") or ""), "used_fallback": bool(pr.get("used_fallback")),
+                      "default_name": _auto_provider_name(pr.get("resolved_base_url") if pr.get("used_fallback") and pr.get("resolved_base_url") else url)}))
 elif op == "apply":
     req = json.loads(sys.stdin.read() or "{}")
     pid, model = str(req.get("provider") or ""), str(req.get("model") or "").strip()
-    info = next((p for p in provs() if p["id"] == pid), None)
-    if not info or info["auth"] != "api_key" or not model:
-        raise SystemExit("provider or model not valid")
     key = str(req.get("key") or "").strip()
+    if pid == "custom":
+        # sama dengan _model_flow_custom milik `hermes model`
+        from hermes_cli.main import _auto_provider_name, _save_custom_provider
+        url = str(req.get("base_url") or "").strip().rstrip("/")
+        if not url.startswith(("http://", "https://")):
+            raise SystemExit("base URL must start with http:// or https://")
+        if not model:
+            raise SystemExit("model is required")
+        api_mode = str(req.get("api_mode") or "").strip()
+        if api_mode not in ("", "chat_completions", "codex_responses", "anthropic_messages"):
+            raise SystemExit("api mode not valid")
+        name = str(req.get("name") or "").strip() or _auto_provider_name(url)
+        ctx = req.get("context_length")
+        ctx = int(ctx) if isinstance(ctx, int) and ctx > 0 else None
+        A._save_model_choice(model)
+        cfg = C.load_config()
+        m = cfg.get("model")
+        if not isinstance(m, dict):
+            m = {"default": m} if m else {}
+            cfg["model"] = m
+        m["provider"] = "custom"
+        m["base_url"] = url
+        if key:
+            m["api_key"] = key
+        else:
+            m.pop("api_key", None)
+        if api_mode:
+            m["api_mode"] = api_mode
+        else:
+            m.pop("api_mode", None)
+        C.save_config(cfg)
+        A.deactivate_provider()
+        _save_custom_provider(url, key, model, context_length=ctx, name=name, api_mode=api_mode or None)
+        try:
+            from hermes_cli.model_setup_flows import _prune_replaced_custom_model_config_credentials
+            _prune_replaced_custom_model_config_credentials(url, provider_name=name)
+        except Exception:
+            pass
+        print(json.dumps({"ok": True, "provider": "custom", "model": model}))
+        sys.exit(0)
+    info = next((p for p in provs() if p["id"] == pid), None)
+    if not info or not model:
+        raise SystemExit("provider or model not valid")
+    if info["auth"] != "api_key":
+        # provider OAuth: sama dengan alur `hermes model` setelah login (mis. _model_flow_openai_codex)
+        if pid not in OAUTH or not (A.get_auth_status(pid) or {}).get("logged_in"):
+            raise SystemExit("log in to this provider first")
+        A._save_model_choice(model)
+        A._update_config_for_provider(pid, info["base_url"], model)
+        print(json.dumps({"ok": True, "provider": pid, "model": model}))
+        sys.exit(0)
     if key:
         if not info["env"]:
             raise SystemExit("this provider has no API key setting")
         C.save_env_value(info["env"], key)
-    elif info["env"] and not C.get_env_value(info["env"]):
+    elif info["env"] and not C.get_env_value(info["env"]) and not pooled(pid):
         raise SystemExit("API key is required")
     A._save_model_choice(model)
     cfg = C.load_config()
@@ -2570,15 +2673,76 @@ def _hermes_python():
     return py
 
 
+HERMES_AUTH_SESS = "termx-hermes-auth"
+HERMES_OAUTH = ("anthropic", "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth")
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _hermes_login(op, args):
+    # Login OAuth berjalan di sesi tmux terpisah (`hermes auth add <p> --type oauth --no-browser`):
+    # aplikasi membaca layar untuk URL/kode dan mengirim balasan (mis. kode otorisasi) lewat stdin.
+    if not shutil.which("tmux"):
+        raise SystemExit("tmux is required for login on this server")
+    tgt = "=" + HERMES_AUTH_SESS
+    pane = tgt + ":"  # target pane perlu pemisah jendela agar "=" (nama persis) diterima
+    if op == "login":
+        pid = args[1] if len(args) > 1 else ""
+        if pid not in HERMES_OAUTH:
+            raise SystemExit("this provider has no OAuth login")
+        b = shutil.which("hermes")
+        if not b:
+            raise SystemExit("hermes is not installed on this server")
+        subprocess.run(["tmux", "kill-session", "-t", tgt], capture_output=True)
+        sh = (shlex.quote(b) + " auth add " + shlex.quote(pid) + " --type oauth --no-browser"
+              + '; echo; echo "__TERMX_DONE_$?__"; sleep 900')
+        r = subprocess.run(["tmux", "new-session", "-d", "-s", HERMES_AUTH_SESS, "-x", "220", "-y", "60", sh],
+                           capture_output=True, text=True, cwd=os.path.expanduser("~"))
+        if r.returncode != 0:
+            raise SystemExit((r.stderr.strip() or "could not start login")[:300])
+        print(jdump({"ok": True}))
+    elif op == "login-status":
+        r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-S", "-300", "-t", pane],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(jdump({"running": False, "done": True, "exit": -1, "lines": [], "urls": [], "codes": []}))
+            return
+        text = _ANSI.sub("", r.stdout)
+        lines = [l.rstrip() for l in text.splitlines()]
+        while lines and not lines[-1].strip():
+            lines.pop()
+        m = re.search(r"__TERMX_DONE_(\d+)__", text)
+        body = "\n".join(l for l in lines if "__TERMX_DONE_" not in l)
+        urls = list(dict.fromkeys(u.rstrip(".,)>]│") for u in re.findall(r"https?://[^\s│]+", body)))
+        codes = list(dict.fromkeys(re.findall(r"\b[A-Z0-9]{4,5}-[A-Z0-9]{4,5}\b", body)))
+        shown = [l for l in lines if "__TERMX_DONE_" not in l][-40:]
+        print(jdump({"running": m is None, "done": m is not None, "exit": int(m.group(1)) if m else None,
+                     "lines": shown, "urls": urls, "codes": codes}))
+    elif op == "login-input":
+        data = sys.stdin.read().strip()
+        if not data:
+            raise SystemExit("nothing to send")
+        subprocess.run(["tmux", "load-buffer", "-b", "termxauth", "-"], input=data, text=True, capture_output=True)
+        subprocess.run(["tmux", "paste-buffer", "-d", "-b", "termxauth", "-t", pane], capture_output=True)
+        subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], capture_output=True)
+        print(jdump({"ok": True}))
+    else:  # login-cancel
+        subprocess.run(["tmux", "kill-session", "-t", tgt], capture_output=True)
+        print(jdump({"ok": True}))
+
+
 def cmd_hermes_setup(args):
-    # hermes-setup status | models <provider> | apply (JSON lewat stdin)
+    # hermes-setup status | models <provider> | probe | apply (JSON lewat stdin)
+    #              | login <provider> | login-status | login-input (stdin) | login-cancel
     op = args[0] if args else "status"
-    if op not in ("status", "models", "apply"):
-        raise SystemExit("usage: hermes-setup status|models <provider>|apply")
+    if op in ("login", "login-status", "login-input", "login-cancel"):
+        _hermes_login(op, args)
+        return
+    if op not in ("status", "models", "probe", "apply"):
+        raise SystemExit("usage: hermes-setup status|models <provider>|probe|apply|login <provider>|login-status|login-input|login-cancel")
     argv = [_hermes_python(), "-c", HERMES_HELPER, op] + (args[1:2] if op == "models" else [])
-    data = sys.stdin.read() if op == "apply" else ""
+    data = sys.stdin.read() if op in ("apply", "probe", "models") else ""
     r = subprocess.run(argv, input=data, capture_output=True, text=True,
-                       timeout=60 if op == "models" else 30, cwd=os.path.expanduser("~"))
+                       timeout=60 if op in ("models", "probe") else 30, cwd=os.path.expanduser("~"))
     line = next((l for l in reversed(r.stdout.splitlines()) if l.startswith("{")), "")
     if r.returncode != 0 or not line:
         err = (r.stderr.strip().splitlines() or ["hermes setup failed"])[-1]

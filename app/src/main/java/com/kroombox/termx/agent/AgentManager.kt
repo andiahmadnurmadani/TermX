@@ -145,6 +145,14 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     private val _runningByHost = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val runningByHost: StateFlow<Map<String, List<String>>> = _runningByHost.asStateFlow()
 
+    /** Agent yang terakhir terlihat berjalan di host ini, bila dicek kurang dari 15 menit lalu. */
+    fun lastRunning(hostId: String): List<String> {
+        val raw = prefs.getString("run_$hostId", null) ?: return emptyList()
+        val at = raw.substringBefore('|').toLongOrNull() ?: return emptyList()
+        if (System.currentTimeMillis() - at > 15 * 60_000) return emptyList()
+        return raw.substringAfter('|').split(',').filter { it.isNotBlank() }
+    }
+
     suspend fun running(hostId: String): RunningInfo = withContext(Dispatchers.IO) {
         val o = run(hostId, "running", timeoutSec = 20)
         RunningInfo(
@@ -162,7 +170,11 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                 }
             } ?: emptyList(),
             o.str("herdr_bin"),
-        ).also { ri -> _runningByHost.update { it + (hostId to ri.agents.map { a -> a.agent }.distinct()) } }
+        ).also { ri ->
+            val ids = ri.agents.map { a -> a.agent }.distinct()
+            _runningByHost.update { it + (hostId to ids) }
+            prefs.edit().putString("run_$hostId", "${System.currentTimeMillis()}|${ids.joinToString(",")}").apply()
+        }
     }
 
     /** Buka sesi yang berjalan sebagai chat (riwayat dari transkrip agent); mengembalikan id chat. */
@@ -231,23 +243,73 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     suspend fun hermesStatus(hostId: String): HermesStatus = withContext(Dispatchers.IO) {
         val o = run(hostId, "hermes-setup status", timeoutSec = 40)
         val keys = o.obj("keys")
+        val oauth = o.obj("oauth")
         HermesStatus(
             o.str("provider"), o.str("model"), o.str("base_url"), o.str("active_oauth"),
             o.arr("providers")?.mapNotNull { e ->
-                (e as? JsonObject)?.let { HermesProvider(it.str("id"), it.str("name"), it.str("env"), it.str("auth"), keys?.bool(it.str("id")) == true) }
+                (e as? JsonObject)?.let {
+                    val id = it.str("id")
+                    HermesProvider(id, it.str("name"), it.str("env"), it.str("auth"), keys?.bool(id) == true, oauth?.bool(id) == true)
+                }
+            } ?: emptyList(),
+            apiMode = o.str("api_mode"),
+            custom = o.arr("custom")?.mapNotNull { e ->
+                (e as? JsonObject)?.let { HermesCustom(it.str("name"), it.str("base_url"), it.str("model"), it.str("api_mode"), it.bool("has_key") == true) }
             } ?: emptyList(),
         )
     }
 
-    suspend fun hermesModels(hostId: String, provider: String): List<String> = withContext(Dispatchers.IO) {
-        run(hostId, "hermes-setup models ${shq(provider)}", timeoutSec = 75).arr("models")
-            ?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
+    /** Semua model provider: katalog Hermes + daftar langsung /models bila kunci ada (kunci baru lewat stdin). */
+    suspend fun hermesModels(hostId: String, provider: String, key: String = ""): Pair<List<String>, Boolean> = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { if (key.isNotBlank()) put("key", key) }
+        val o = run(hostId, "hermes-setup models ${shq(provider)}", timeoutSec = 90, stdin = body.toString())
+        (o.arr("models")?.mapNotNull { (it as? JsonPrimitive)?.content }?.distinct() ?: emptyList()) to (o.bool("live") == true)
+    }
+
+    suspend fun hermesProbe(hostId: String, baseUrl: String, key: String): HermesProbe = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("base_url", baseUrl); if (key.isNotBlank()) put("key", key) }
+        val o = run(hostId, "hermes-setup probe", timeoutSec = 60, stdin = body.toString())
+        HermesProbe(
+            o.bool("ok") == true, o.arr("models")?.mapNotNull { (it as? JsonPrimitive)?.content }?.distinct() ?: emptyList(),
+            o.str("probed_url"), o.str("resolved_base_url"), o.str("suggested_base_url"), o.bool("used_fallback") == true, o.str("default_name"),
+        )
     }
 
     /** Simpan pilihan; kunci API dikirim lewat stdin (tidak tampil di daftar proses server). */
     suspend fun hermesApply(hostId: String, provider: String, model: String, key: String) = withContext(Dispatchers.IO) {
         val body = buildJsonObject { put("provider", provider); put("model", model); if (key.isNotBlank()) put("key", key) }
         run(hostId, "hermes-setup apply", timeoutSec = 40, stdin = body.toString())
+    }
+
+    /** Simpan endpoint custom seperti alur custom `hermes model`. */
+    suspend fun hermesApplyCustom(
+        hostId: String, baseUrl: String, key: String, apiMode: String, model: String, name: String, contextLength: Int?,
+    ) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("provider", "custom"); put("base_url", baseUrl); put("model", model); put("api_mode", apiMode); put("name", name)
+            if (key.isNotBlank()) put("key", key)
+            if (contextLength != null) put("context_length", contextLength)
+        }
+        run(hostId, "hermes-setup apply", timeoutSec = 40, stdin = body.toString())
+    }
+
+    suspend fun hermesLoginStart(hostId: String, provider: String) = withContext(Dispatchers.IO) {
+        run(hostId, "hermes-setup login ${shq(provider)}", timeoutSec = 30)
+    }
+
+    suspend fun hermesLoginStatus(hostId: String): HermesLogin = withContext(Dispatchers.IO) {
+        val o = run(hostId, "hermes-setup login-status", timeoutSec = 20)
+        fun list(k: String) = o.arr(k)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
+        HermesLogin(o.bool("running") == true, list("lines"), list("urls"), list("codes"))
+    }
+
+    /** Jawaban untuk proses login (mis. kode otorisasi) lewat stdin, bukan argumen. */
+    suspend fun hermesLoginInput(hostId: String, text: String) = withContext(Dispatchers.IO) {
+        run(hostId, "hermes-setup login-input", timeoutSec = 20, stdin = text)
+    }
+
+    suspend fun hermesLoginCancel(hostId: String) = withContext(Dispatchers.IO) {
+        run(hostId, "hermes-setup login-cancel", timeoutSec = 20)
     }
 
     suspend fun rename(hostId: String, chatId: String, title: String) = withContext(Dispatchers.IO) {

@@ -1,5 +1,7 @@
 package com.kroombox.termx.ui.screens
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.offset
 import com.kroombox.termx.i18n.S
 import com.kroombox.termx.R
 import androidx.compose.ui.res.stringResource
@@ -112,10 +114,14 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
     // Agent yang berjalan di host yang tersambung: diperbarui berkala, tampil sebagai logo di kartunya.
     val agentMgr = TermXApp.container.agents
     val runningAgents by agentMgr.runningByHost.collectAsState()
-    LaunchedEffect(connectedHosts) {
-        while (connectedHosts.isNotEmpty()) {
-            for (id in connectedHosts) runCatching { agentMgr.running(id) }
-            kotlinx.coroutines.delay(20_000)
+    // Host yang punya koneksi SSH hidup (terminal, SFTP, monitor, atau layar agent) dicek berkala;
+    // host lain memakai hasil terakhir selama masih baru (lihat AgentManager.lastRunning).
+    val hostIds = data.hosts.map { it.id }
+    LaunchedEffect(hostIds) {
+        while (true) {
+            val live = hostIds.filter { id -> TermXApp.container.sessions.existingConnection(id)?.isConnected == true }
+            for (id in live) runCatching { agentMgr.running(id) }
+            kotlinx.coroutines.delay(if (live.isEmpty()) 5_000 else 20_000)
         }
     }
 
@@ -181,7 +187,7 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
                     }
                     items(list, key = { it.id }) { host ->
                         HostCard(host, connected = host.id in connectedHosts, nav = nav,
-                            agents = if (host.id in connectedHosts) runningAgents[host.id].orEmpty() else emptyList())
+                            agents = runningAgents.let { agentMgr.lastRunning(host.id) })
                     }
                 }
             }
@@ -285,6 +291,12 @@ private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (St
 private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<String> = emptyList()) {
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val tailnet = com.kroombox.termx.net.Tailscale.isTailnetAddress(host.hostname)
+    val peek = tailnet || agents.isNotEmpty()
+    // Ikon Tailscale & agent berjalan "terselip" di belakang pojok kanan atas kartu: digambar lebih dulu,
+    // lalu kartu menutup separuh bawahnya.
+    Box(Modifier.fillMaxWidth().padding(top = if (peek) 22.dp else 0.dp)) {
+    if (peek) CornerBadges(tailnet, agents, Modifier.align(Alignment.TopEnd).padding(end = 18.dp).offset(y = (-22).dp))
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
@@ -305,24 +317,11 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<Stri
             Column(Modifier.weight(1f)) {
                 Text(host.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(host.address, style = MonoSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val tailnet = com.kroombox.termx.net.Tailscale.isTailnetAddress(host.hostname)
-                val hasMeta = agents.isNotEmpty() || tailnet || host.persistentSession || host.jumpHostId != null || host.tags.isNotEmpty()
+                val hasMeta = host.persistentSession || host.jumpHostId != null || host.tags.isNotEmpty()
                 if (hasMeta) {
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         // Logo OS sudah tampil di avatar; di sini cukup penanda yang menambah informasi.
-                        if (tailnet) {
-                            Box(
-                                Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).background(Palette.Blue.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    androidx.compose.ui.res.painterResource(R.drawable.ic_tailscale), "Tailscale",
-                                    tint = Palette.Blue, modifier = Modifier.size(12.dp),
-                                )
-                            }
-                        }
-                        if (agents.isNotEmpty()) RunningAgentsStrip(agents)
                         if (host.persistentSession) Tag("tmux · ${host.tmuxSessionName}", Palette.TextDim)
                         if (host.jumpHostId != null) Tag(stringResource(R.string.hosts_via_jump), Palette.TextDim)
                         host.tags.take(2).forEach { Tag(it, Palette.TextDim) }
@@ -337,6 +336,7 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<Stri
                 Text(timeAgo(host.lastConnectedAt), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
             }
         }
+    }
     }
     if (confirmDelete) {
         ConfirmDialog(
@@ -353,26 +353,59 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<Stri
     }
 }
 
-/** Logo agent yang sedang berjalan di host, ditumpuk sedikit, dengan titik hijau berdenyut. */
+/**
+ * "Kepala" kecil yang mengintip dari balik tepi atas kartu: Tailscale lalu tiap agent yang berjalan
+ * (logo asli). Muncul sekali dengan lompatan pegas bergiliran; setelahnya hanya agent yang
+ * mengangguk pelan, Tailscale diam karena ia jaringan, bukan pekerja.
+ */
 @Composable
-private fun RunningAgentsStrip(agents: List<String>) {
-    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "live")
-    val a by t.animateFloat(
-        0.35f, 1f,
-        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800), androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "a",
+private fun CornerBadges(tailnet: Boolean, agents: List<String>, modifier: Modifier = Modifier) {
+    val shown = agents.distinct()
+    val heads = (if (tailnet) listOf("~tailscale") else emptyList()) + shown.take(5)
+    val bob = androidx.compose.animation.core.rememberInfiniteTransition(label = "bob")
+    val phase by bob.animateFloat(
+        0f, (2 * Math.PI).toFloat(),
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "phase",
     )
-    Row(
-        Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.Accent.copy(alpha = 0.10f)).padding(start = 5.dp, end = 3.dp, top = 2.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(Palette.Accent.copy(alpha = a)))
-        Spacer(Modifier.width(5.dp))
-        agents.take(4).forEachIndexed { i, id ->
-            Box(Modifier.padding(start = if (i == 0) 0.dp else 2.dp)) { AgentGlyph(id, 18.dp) }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Top) {
+        heads.forEachIndexed { i, id ->
+            val isNet = id == "~tailscale"
+            // lompatan masuk: dari balik kartu naik ke posisi, bergiliran
+            val rise = remember(id) { androidx.compose.animation.core.Animatable(1f) }
+            LaunchedEffect(id) {
+                kotlinx.coroutines.delay(70L * i)
+                rise.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.42f, stiffness = 320f))
+            }
+            val tint = if (isNet) Palette.Blue else agentColor(id).let { if (it == Color(0xFFE6EDF3)) Palette.Text else it }
+            val tilt = if (i % 2 == 0) -6f else 6f
+            Box(
+                Modifier
+                    .graphicsLayer {
+                        val nod = if (isNet) 0f else kotlin.math.sin(phase + i * 1.1f)
+                        translationY = rise.value * 18.dp.toPx() + nod * 1.6.dp.toPx()
+                        rotationZ = tilt * (1f - rise.value * 0.5f) + nod * 2f
+                    }
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(2.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(tint.copy(alpha = 0.18f))
+                    .background(Palette.SurfaceHigh.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                // wajah logo di bagian yang terlihat; sisi bawah tertutup kartu
+                val res = if (isNet) R.drawable.ic_tailscale else agentLogo(id)
+                if (res != null) Icon(androidx.compose.ui.res.painterResource(res), if (isNet) "Tailscale" else id, tint = tint, modifier = Modifier.padding(top = 2.dp).size(16.dp))
+                else Text(id.take(1).uppercase(), color = tint, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 1.dp))
+            }
         }
-        if (agents.size > 4) Text("+${agents.size - 4}", style = MaterialTheme.typography.labelSmall, color = Palette.Accent,
-            modifier = Modifier.padding(start = 3.dp))
+        if (shown.size > 5) Box(
+            Modifier.size(32.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.background).padding(2.dp)
+                .clip(RoundedCornerShape(9.dp)).background(Palette.SurfaceHigh).padding(top = 4.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) { Text("+${shown.size - 5}", style = MaterialTheme.typography.labelSmall, color = Palette.Accent) }
     }
 }
 
