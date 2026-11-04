@@ -3,6 +3,18 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.9] - 2026-11-04
+
+### Changed
+- Messages sent from a mirrored chat always go to the agent's own terminal. TermX no longer starts a separate session when the terminal agent has exited.
+- If the agent has exited but its tmux or herdr pane is still open, TermX reopens the same session there (for example `claude --resume <id>`) and types the message into it.
+- If the original pane is closed, the same session is reopened in a new tmux session you can attach to, so the conversation stays in a real terminal.
+- If you reopen the session yourself in another tmux or herdr pane, the chat follows it automatically.
+- Sessions in a plain terminal (outside tmux or herdr) now show a clear message instead of forking a hidden session.
+
+### Fixed
+- Changing the mode in a mirrored chat no longer fails with an internal error.
+
 ## [0.10.8] - 2026-11-04
 
 ### Fixed

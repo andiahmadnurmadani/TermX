@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 
-VERSION = 9
+VERSION = 10
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -2076,6 +2076,10 @@ class MirrorAdapter:
         self.gone = False
         self.saved_at = 0.0
         self.partial = b""
+        self.pending = []          # pesan yang menunggu agent dibuka lagi di terminalnya
+        self.reviving = False
+        self.ready_at = 0.0
+        self.lock = threading.Lock()
         threading.Thread(target=self._loop, daemon=True).start()
 
     # -- target
@@ -2114,12 +2118,24 @@ class MirrorAdapter:
 
     # -- perintah dari aplikasi
     def send(self, text):
-        if not self._interactive() or not self._alive():
-            return self._continue_here(text)
+        # Pesan selalu masuk ke terminal aslinya; TermX tidak pernah membuat sesi terpisah.
+        if self._interactive() and self._alive():
+            return self._deliver(text)
+        with self.lock:
+            self.pending.append(text)
+            start = not self.reviving
+            self.reviving = True
+        self.w.set_busy(True)
+        if start:
+            threading.Thread(target=self._revive, daemon=True).start()
+
+    def _deliver(self, text):
         if self.mi.get("owned"):  # agent baru dijalankan: beri waktu tampilan terminalnya siap
             wait = 6 - (time.time() - (self.w.meta.get("created", 0) / 1000.0))
             if wait > 0:
                 time.sleep(min(wait, 6))
+        if self.ready_at > time.time():
+            time.sleep(min(self.ready_at - time.time(), 10))
         self.sent.append(text)
         self.grace = time.time() + 8
         try:
@@ -2129,18 +2145,125 @@ class MirrorAdapter:
             self.w.emit({"t": "error", "msg": "could not send to %s: %s" % (self.mi.get("place"), e)})
             self.w.set_busy(False)
 
-    def _continue_here(self, text):
-        """Proses aslinya tidak bisa diketik (terminal lain / sudah keluar): lanjutkan sesi di TermX."""
-        cls = ADAPTERS.get(self.agent)
-        if cls is None or not self.w.meta.get("session"):
-            self.w.emit({"t": "error", "msg": "This session can't receive messages from TermX. Open it in its terminal instead."})
+    def _revive(self):
+        err = ""
+        try:
+            ok = self._retarget() or self._reopen()
+        except Exception as e:
+            ok, err = False, str(e)
+        with self.lock:
+            texts, self.pending = self.pending, []
+            self.reviving = False
+        if not ok:
+            self.w.emit({"t": "error", "msg": err or "The agent isn't running in its terminal any more. Start it there again."})
             return self.w.set_busy(False)
-        self.stopped.set()
-        self.w.save_meta(mirror=None)
-        self.w.emit({"t": "note", "msg": "Continuing this conversation in TermX. The original terminal won't show these messages."})
-        self.w.emit({"t": "mirror_end"})
-        self.w.adapter = cls(self.w)
-        self.w.adapter.send(text)
+        for t in texts:
+            self._deliver(t)
+
+    def _follow(self, f, herdr_bin=""):
+        """Ikuti proses agent f (pane yang sama atau sesi yang sama dibuka lagi)."""
+        where, tgt = _pane_target(f)
+        self.mi.update(where=where, pid=f.get("pid") or 0, herdr_pane=tgt if where == "herdr" else "",
+                       tmux=tgt if where == "tmux" else "", place=_place(f))
+        if herdr_bin:
+            self.mi["herdr_bin"] = herdr_bin
+        if self.mi.get("owned") and not tgt.startswith("=%s:" % self.mi["owned"]):
+            self.mi.pop("owned", None)
+        sid = f.get("session") or ""
+        if self.agent == "codex" and sid and sid != self.w.meta.get("session"):
+            self.w.save_meta(session=sid)
+            self.mi.update(transcript="", offset=0)
+        self.gone = False
+        self.w.save_meta(mirror=self.mi)
+
+    def _retarget(self):
+        """Agent sudah berjalan lagi (sesi yang sama, atau di pane yang sama): ikuti, jangan buka yang baru."""
+        found, herdr_bin = _running()
+        sess = self.w.meta.get("session") or ""
+        mine = ("herdr", self.mi.get("herdr_pane")) if self.mi.get("where") == "herdr" else ("tmux", self.mi.get("tmux"))
+        cands = [f for f in found if f["agent"] == self.agent and f["where"] in ("tmux", "herdr")]
+        f = next((f for f in cands if sess and f.get("session") == sess), None) \
+            or next((f for f in cands if mine[1] and _pane_target(f) == mine), None)
+        if f is None:
+            return False
+        self._follow(f, herdr_bin)
+        return True
+
+    def _wait_ready(self, pid):
+        """Tunggu tampilan agent siap menerima ketikan setelah dibuka lagi."""
+        if self.agent == "claude" and pid:
+            for _ in range(40):
+                if _claude_session(pid).get("status") == "idle":
+                    break
+                time.sleep(0.5)
+            self.ready_at = time.time() + 1.5
+        else:
+            self.ready_at = time.time() + 4
+
+    def _reopen(self):
+        """Buka lagi sesi yang sama (resume) di terminal aslinya; bila pane-nya sudah tidak ada, di tmux baru."""
+        args = _resume_args(self.agent, self.w.meta.get("session") or "")
+        if args is None:
+            raise RuntimeError("The agent in the terminal has exited and this session can't be reopened from TermX. Start it again in its terminal.")
+        binp = _agent_bin(self.agent)
+        if not binp:
+            raise RuntimeError("agent not found: " + self.agent)
+        if self.mi.get("where") == "other" and self.mi.get("pid") and _proc_is(self.mi["pid"], self.agent):
+            raise RuntimeError("This session runs in a plain terminal, so TermX can't type into it. Run it inside tmux or herdr.")
+        cwd = self.w.meta.get("cwd") or os.path.expanduser("~")
+        where = self.mi.get("where")
+        if where == "herdr" and self.mi.get("herdr_pane") and self._reopen_herdr(args):
+            return True
+        if where == "tmux" and self.mi.get("tmux") and self._reopen_tmux(binp, args, cwd):
+            return True
+        # Terminal aslinya sudah ditutup: lanjutkan sesi yang sama di tmux baru (tetap terlihat di terminal).
+        mi = _new_in_tmux(self.agent, cwd, "", "", args)
+        for k in ("where", "pid", "herdr_pane", "tmux", "place", "owned"):
+            self.mi[k] = mi[k]
+        self.gone = False
+        self.w.save_meta(mirror=self.mi)
+        self.w.emit({"t": "note", "msg": "The original terminal is closed, so the session was reopened in %s "
+                                         "(attach with: tmux attach -t %s)." % (mi["place"], mi["owned"])})
+        self._wait_ready(mi["pid"])
+        return True
+
+    def _reopen_tmux(self, binp, args, cwd):
+        tgt = self.mi["tmux"]
+        r = subprocess.run(["tmux", "display-message", "-p", "-t", tgt, "#{pane_dead}\t#{pane_current_command}"],
+                           capture_output=True, text=True, timeout=5)
+        dead, _, cur = (r.stdout or "").strip().partition("\t")
+        if r.returncode != 0 or dead == "1" or cur not in SHELLS:
+            return False  # pane sudah tidak ada / sedang menjalankan program lain: jangan mengetik ke sana
+        line = "cd %s && %s" % (shlex.quote(cwd), _tmux_cmd_for(self.agent, binp, "", "", args))
+        subprocess.run(["tmux", "send-keys", "-t", tgt, "C-u"], capture_output=True, timeout=5, check=True)
+        subprocess.run(["tmux", "send-keys", "-t", tgt, "-l", line], capture_output=True, timeout=5, check=True)
+        subprocess.run(["tmux", "send-keys", "-t", tgt, "Enter"], capture_output=True, timeout=5, check=True)
+        for _ in range(50):  # tunggu agent muncul di pane itu (maks ~25 detik)
+            time.sleep(0.5)
+            found, herdr_bin = _running()
+            f = next((x for x in found if x["agent"] == self.agent and _pane_target(x) == ("tmux", tgt)), None)
+            if f:
+                self._follow(f, herdr_bin)
+                self.w.emit({"t": "note", "msg": "Reopened the session in %s." % self.mi.get("place")})
+                self._wait_ready(f["pid"])
+                return True
+        raise RuntimeError("Typed the resume command into %s, but the agent didn't start." % self.mi.get("place"))
+
+    def _reopen_herdr(self, args):
+        hb = self.mi.get("herdr_bin") or shutil.which("herdr") or "herdr"
+        kind = {"antigravity": "agy"}.get(self.agent, self.agent)
+        r = subprocess.run([hb, "agent", "start", self.agent, "--kind", kind, "--pane", self.mi["herdr_pane"],
+                            "--timeout", "40000", "--", *args], capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return False  # pane tidak di prompt shell / sudah ditutup
+        found, herdr_bin = _running()
+        f = next((x for x in found if x["agent"] == self.agent and _pane_target(x) == ("herdr", self.mi["herdr_pane"])), None)
+        if f is None:
+            return False
+        self._follow(f, herdr_bin or hb)
+        self.w.emit({"t": "note", "msg": "Reopened the session in %s." % self.mi.get("place")})
+        self._wait_ready(f.get("pid"))
+        return True
 
     def permission(self, rid, allow, always):
         if rid != self.perm:
@@ -2169,7 +2292,7 @@ class MirrorAdapter:
         self.w.emit({"t": "note", "msg": "Change the model in the agent's own session (e.g. /model)."})
 
     def set_mode(self, mode):
-        self.emit({"t": "note", "msg": "Change the mode in the agent's own session."})
+        self.w.emit({"t": "note", "msg": "Change the mode in the agent's own session."})
 
     def interrupt(self):
         if self._interactive():
@@ -2279,12 +2402,19 @@ class MirrorAdapter:
                 if tick % 2:
                     continue
                 if not self._alive():
+                    if self.reviving:
+                        continue
                     if not self.gone:
                         self.gone = True
                         self._close_perm(False)
-                        self.w.emit({"t": "note", "msg": "The agent in the terminal has exited. Send a message to continue here."})
+                        self.w.emit({"t": "note", "msg": "The agent in the terminal has exited. Send a message to reopen this session there."})
                         if self.w.busy:
                             self.w.set_busy(False)
+                    elif tick % 16 == 0:  # dibuka lagi sendiri di terminal (mis. claude --resume): ikuti
+                        with self.lock:
+                            busy = self.reviving
+                        if not busy and self._retarget():
+                            self.w.emit({"t": "note", "msg": "Following the session again in %s." % self.mi.get("place")})
                     continue
                 st = self._status()
                 screen = ""
@@ -2324,7 +2454,7 @@ class MirrorAdapter:
 
 # ------------------------------------------------------------------ chat yang juga tampil di terminal (tmux)
 
-def _tmux_cmd_for(agent, binp, model, mode):
+def _tmux_cmd_for(agent, binp, model, mode, extra=()):
     cmd = [binp]
     if agent == "claude":
         if model:
@@ -2333,21 +2463,48 @@ def _tmux_cmd_for(agent, binp, model, mode):
             cmd += ["--permission-mode", "default" if mode == "manual" else mode]
     elif agent == "codex" and model:
         cmd += ["-m", model]
+    cmd += list(extra)
     return " ".join(shlex.quote(c) for c in cmd)
 
 
-def _new_in_tmux(agent, cwd, model, mode):
+# Membuka lagi sesi yang sama di terminal (bukan sesi baru): argumen resume per agent.
+RESUME_ARGS = {"claude": ["--resume", "{s}"], "codex": ["resume", "{s}"], "opencode": ["--session", "{s}"]}
+SHELLS = ("bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh")
+
+
+def _resume_args(agent, session):
+    tpl = RESUME_ARGS.get(agent)
+    if not tpl or not session or not re.match(r"^[\w.-]+$", session):
+        return None
+    return [a.replace("{s}", session) for a in tpl]
+
+
+def _agent_bin(agent):
+    entry = next((a for a in CATALOG if a["id"] == agent), None)
+    return first_bin(*(entry["bins"] if entry else [agent]))
+
+
+def _pane_target(f):
+    """(where, target) pane tempat agent berjalan: tmux '=sesi:jendela.pane' atau id pane herdr."""
+    if f.get("where") == "tmux" and f.get("tmux"):
+        t = f["tmux"]
+        return "tmux", "=%s:%s.%s" % (t["session"], t["window"], t["pane"])
+    if f.get("where") == "herdr":
+        return "herdr", (f.get("herdr") or {}).get("pane", "")
+    return "", ""
+
+
+def _new_in_tmux(agent, cwd, model, mode, extra=()):
     """Jalankan agent interaktif di sesi tmux baru, lalu ikuti sebagai chat (lihat MirrorAdapter)."""
     if not shutil.which("tmux"):
         raise SystemExit("tmux is not installed on this server")
-    entry = next((a for a in CATALOG if a["id"] == agent), None)
-    binp = first_bin(*(entry["bins"] if entry else [agent]))
+    binp = _agent_bin(agent)
     if not binp:
         raise SystemExit("agent not found: " + agent)
     name = "termx-" + uuid.uuid4().hex[:6]
     env_path()
     subprocess.run(["tmux", "new-session", "-d", "-s", name, "-x", "160", "-y", "48", "-c", cwd,
-                    _tmux_cmd_for(agent, binp, model, mode)], check=True, capture_output=True, timeout=10)
+                    _tmux_cmd_for(agent, binp, model, mode, extra)], check=True, capture_output=True, timeout=10)
     pid = 0
     for _ in range(60):  # tunggu proses agent muncul di pane (maks ~6 detik)
         time.sleep(0.1)
