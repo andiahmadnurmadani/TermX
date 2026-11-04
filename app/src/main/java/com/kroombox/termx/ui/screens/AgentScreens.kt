@@ -281,6 +281,9 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
     var running by remember { mutableStateOf<RunningInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var noPythonOs by remember { mutableStateOf<String?>(null) }
+    var pyInstalling by remember { mutableStateOf(false) }
+    var pyError by remember { mutableStateOf<String?>(null) }
     var showNew by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var renaming by remember { mutableStateOf<ChatMeta?>(null) }
@@ -309,6 +312,7 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
     LaunchedEffect(refreshKey) {
         loading = true
         error = null
+        noPythonOs = null
         try {
             coroutineScope {
                 val a = async { mgr.detect(hostId) }
@@ -326,6 +330,7 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            noPythonOs = (e as? com.kroombox.termx.agent.NoPythonException)?.os
             error = e.message ?: e.toString()
         }
         loading = false
@@ -377,6 +382,49 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                     stringResource(R.string.agent_detect_sub, host?.label ?: ""),
                     logos = DETECT_LOGOS,
                 )
+            }
+            error != null && agents.isEmpty() && noPythonOs != null -> Box(Modifier.padding(pad)) {
+                val os = noPythonOs ?: ""
+                val how = when (os) {
+                    com.kroombox.termx.agent.AgentManager.OS_WINDOWS -> stringResource(R.string.agent_python_how_windows)
+                    com.kroombox.termx.agent.AgentManager.OS_LINUX -> stringResource(R.string.agent_python_how_linux)
+                    com.kroombox.termx.agent.AgentManager.OS_MAC -> stringResource(R.string.agent_python_how_mac)
+                    else -> stringResource(R.string.agent_python_unknown_os)
+                }
+                EmptyState(Icons.Rounded.CloudOff, stringResource(R.string.agent_python_title), "${error ?: ""}\n\n$how") {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (pyInstalling) {
+                            com.kroombox.termx.ui.components.WaveDots()
+                            Spacer(Modifier.height(8.dp))
+                            Text(stringResource(R.string.agent_python_installing), style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
+                        } else {
+                            if (os != com.kroombox.termx.agent.AgentManager.OS_UNKNOWN) {
+                                Button(onClick = {
+                                    pyInstalling = true
+                                    pyError = null
+                                    scope.launch {
+                                        try {
+                                            mgr.installPython(hostId, os)
+                                            refreshKey++
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            pyError = e.message ?: e.toString()
+                                        } finally {
+                                            pyInstalling = false
+                                        }
+                                    }
+                                }) { Text(stringResource(R.string.agent_python_install)) }
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            androidx.compose.material3.TextButton(onClick = { refreshKey++ }) { Text(stringResource(R.string.agent_retry)) }
+                        }
+                        pyError?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    }
+                }
             }
             error != null && agents.isEmpty() -> Box(Modifier.padding(pad)) {
                 EmptyState(Icons.Rounded.CloudOff, stringResource(R.string.agent_error_title), error ?: "") {

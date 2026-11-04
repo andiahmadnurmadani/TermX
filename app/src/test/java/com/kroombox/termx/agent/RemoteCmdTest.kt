@@ -41,4 +41,21 @@ class RemoteCmdTest {
         assertFalse(l.contains("'"))
         assertEquals("python3 ~/.termx/agentd.py list", RemoteHost(false, "python3", "").line("list"))
     }
+
+    @Test fun spacedPythonPathRunsViaPowershell() {
+        val h = RemoteHost(true, "C:\\Users\\A B\\AppData\\Local\\Programs\\Python\\Python312\\python.exe", "C:\\Users\\A B\\.termx\\agentd.py")
+        val l = h.line("version")
+        assertTrue(l.startsWith("powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "))
+        val ps = String(Base64.getDecoder().decode(l.substringAfterLast(' ')), Charsets.UTF_16LE)
+        assertTrue(ps.startsWith("& 'C:\\Users\\A B\\AppData\\Local\\Programs\\Python\\Python312\\python.exe' 'C:\\Users\\A B\\.termx\\agentd.py' '--b64' '"))
+        assertTrue(ps.endsWith("; exit \$LASTEXITCODE"))
+        assertEquals("python -c \"import os;print(1)\"", RemoteHost(true, "python", "").python(listOf("-c", "import os;print(1)")))
+    }
+
+    @Test fun installScriptsHaveMarkers() {
+        assertTrue(RemoteCmd.WIN_INSTALL_PYTHON.contains("TXOK"))
+        assertTrue(RemoteCmd.WIN_FIND_PYTHON.contains("TXPY"))
+        assertFalse(RemoteCmd.WIN_FIND_PYTHON.contains("|  "))
+        assertTrue(RemoteCmd.LINUX_INSTALL_PYTHON.contains("echo TXOK"))
+    }
 }

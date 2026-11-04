@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat
 import com.kroombox.termx.MainActivity
 import com.kroombox.termx.R
 import com.kroombox.termx.i18n.S
+import com.kroombox.termx.ssh.ExecResult
 import com.kroombox.termx.ssh.SessionManager
 import com.kroombox.termx.ssh.SshConnection
 import com.kroombox.termx.ssh.SshException
@@ -90,17 +91,74 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
 
     /** Linux/macOS → sh seperti biasa; Windows → python yang ada (python3 / python / py -3) dan path absolut. */
     private fun probe(c: SshConnection): RemoteHost {
-        for (py in listOf("python3", "python", "py -3")) {
-            val r = runCatching { c.exec("$py -c \"${RemoteCmd.PROBE}\"", timeoutSec = 15) }.getOrNull() ?: continue
-            val (plat, home) = RemoteCmd.parseProbe(r.stdout) ?: continue
-            return if (plat == "win32") RemoteHost(true, py, home.trimEnd('\\', '/') + "\\.termx\\agentd.py") else posixHost
+        for (py in listOf("python3", "python", "py -3")) tryPython(c, py)?.let { return it }
+        val os = detectOs(c)
+        if (os == OS_WINDOWS) {
+            // Sudah terpasang tapi belum masuk PATH sesi SSH (mis. baru dipasang, atau PATH belum dimuat ulang).
+            val found = runCatching { c.exec(RemoteCmd.powershell(RemoteCmd.WIN_FIND_PYTHON), timeoutSec = 30) }.getOrNull()
+                ?.stdout?.lineSequence()?.map { it.trim() }?.firstOrNull { it.startsWith("TXPY ") }?.removePrefix("TXPY ")?.trim()
+            if (!found.isNullOrEmpty()) tryPython(c, found)?.let { return it }
         }
-        throw SshException(S.get(R.string.agent_no_python), fatal = true)
+        throw NoPythonException(os)
     }
+
+    private fun tryPython(c: SshConnection, py: String): RemoteHost? {
+        val probeCmd = RemoteHost(true, py, "").python(listOf("-c", RemoteCmd.PROBE))
+        val r = runCatching { c.exec(probeCmd, timeoutSec = 15) }.getOrNull() ?: return null
+        val (plat, home) = RemoteCmd.parseProbe(r.stdout) ?: return null
+        return if (plat == "win32") RemoteHost(true, py, home.trimEnd('\\', '/') + "\\.termx\\agentd.py") else posixHost
+    }
+
+    /** OS host tanpa python: `uname` (Linux/macOS), atau `ver` milik cmd.exe (Windows). */
+    private fun detectOs(c: SshConnection): String {
+        val u = runCatching { c.exec("uname -s", timeoutSec = 10).stdout }.getOrDefault("")
+        if (u.contains("Darwin")) return OS_MAC
+        if (u.contains("Linux") || u.contains("BSD")) return OS_LINUX
+        val v = runCatching { c.exec("cmd /c ver", timeoutSec = 10).stdout }.getOrDefault("")
+        return if (v.contains("Windows", ignoreCase = true)) OS_WINDOWS else OS_UNKNOWN
+    }
+
+    /**
+     * Pasang Python 3 di host (tombol "Pasang Python"). Windows: winget / installer python.org untuk
+     * pengguna ini (tanpa admin). Linux: pengelola paket lewat sudo. macOS: Homebrew bila ada.
+     */
+    suspend fun installPython(hostId: String, os: String) = withContext(Dispatchers.IO) {
+        val c = conn(hostId)
+        when (os) {
+            OS_WINDOWS -> {
+                val r = c.exec(RemoteCmd.powershell(RemoteCmd.WIN_INSTALL_PYTHON), timeoutSec = 900)
+                if (!r.stdout.contains("TXOK")) throw SshException(S.get(R.string.agent_python_install_failed, tail(r)))
+            }
+            OS_LINUX -> {
+                val root = runCatching { c.exec("id -u", timeoutSec = 10).stdout.trim() == "0" }.getOrDefault(false)
+                val r = if (root) c.exec("sh -s", timeoutSec = 900, stdin = RemoteCmd.LINUX_INSTALL_PYTHON)
+                    else sessions.execSudo(hostId, RemoteCmd.LINUX_INSTALL_PYTHON, timeoutSec = 900)
+                if (r.stdout.contains("NOPM")) throw SshException(S.get(R.string.agent_python_no_pm))
+                if (!r.stdout.contains("TXOK")) throw SshException(S.get(R.string.agent_python_install_failed, tail(r)))
+            }
+            OS_MAC -> {
+                val r = c.exec(
+                    "b=\$(command -v brew || ls /opt/homebrew/bin/brew /usr/local/bin/brew 2>/dev/null | head -n1); " +
+                        "[ -n \"\$b\" ] || { echo NOBREW; exit 3; }; \"\$b\" install python && echo TXOK",
+                    timeoutSec = 900,
+                )
+                if (r.stdout.contains("NOBREW")) throw SshException(S.get(R.string.agent_python_mac_manual))
+                if (!r.stdout.contains("TXOK")) throw SshException(S.get(R.string.agent_python_install_failed, tail(r)))
+            }
+            else -> throw SshException(S.get(R.string.agent_python_unknown_os))
+        }
+        installed.remove(hostId)
+        remotes.remove(hostId)
+        // Pastikan benar-benar terdeteksi sekarang (melempar NoPythonException bila belum).
+        ensureInstalled(c, hostId)
+    }
+
+    private fun tail(r: ExecResult): String =
+        (r.stderr.ifBlank { r.stdout }).trim().lines().takeLast(3).joinToString(" ").take(240)
 
     private fun installPosix(c: SshConnection) {
         val v = c.exec("$PY $REMOTE version 2>/dev/null; command -v python3 >/dev/null 2>&1 || echo NOPY", timeoutSec = 15)
-        if (v.stdout.contains("NOPY")) throw SshException(S.get(R.string.agent_no_python), fatal = true)
+        if (v.stdout.contains("NOPY")) throw NoPythonException(detectOs(c))
         if (v.stdout.trim().toIntOrNull() != scriptVersion) {
             val r = c.exec(
                 // Nama sementara unik per proses ($$) agar dua pemasangan tidak saling menimpa.
@@ -113,7 +171,7 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     }
 
     private fun installWindows(c: SshConnection, host: RemoteHost) {
-        val v = c.exec("${host.py} \"${host.script}\" version", timeoutSec = 15)
+        val v = c.exec(host.python(listOf(host.script, "version")), timeoutSec = 15)
         if (v.stdout.trim().toIntOrNull() == scriptVersion) return
         // SFTP dulu (tidak bergantung pada cara PowerShell/cmd meneruskan stdin), lalu ganti berkasnya lewat python.
         val viaSftp = runCatching {
@@ -126,10 +184,10 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
             } finally {
                 rf.close()
             }
-            c.exec("${host.py} -c \"${RemoteCmd.WIN_REPLACE}\"", timeoutSec = 20).stdout.contains("OK")
+            c.exec(host.python(listOf("-c", RemoteCmd.WIN_REPLACE)), timeoutSec = 20).stdout.contains("OK")
         }.getOrDefault(false)
         if (viaSftp) return
-        val r = c.exec("${host.py} -c \"${RemoteCmd.WIN_STDIN_INSTALL}\"", timeoutSec = 30, stdin = String(script))
+        val r = c.exec(host.python(listOf("-c", RemoteCmd.WIN_STDIN_INSTALL)), timeoutSec = 30, stdin = String(script))
         if (!r.stdout.contains("OK")) throw SshException(S.get(R.string.agent_install_failed, r.stderr.take(200)))
     }
 
@@ -673,8 +731,15 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
     companion object {
         const val REMOTE = "~/.termx/agentd.py"
         const val PY = "python3"
+        const val OS_WINDOWS = "windows"
+        const val OS_LINUX = "linux"
+        const val OS_MAC = "mac"
+        const val OS_UNKNOWN = "unknown"
         private const val CHANNEL = "agents_sound"
         const val INITIAL_TURNS = 20
         private const val OLD_CHANNEL = "agents"
     }
 }
+
+/** Host belum punya Python 3; [os] = salah satu AgentManager.OS_* agar UI bisa menawarkan pemasangan. */
+class NoPythonException(val os: String) : SshException(S.get(R.string.agent_no_python), fatal = true)

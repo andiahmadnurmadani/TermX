@@ -3,6 +3,14 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.12] - 2026-11-04
+### Added
+- AI agents: when a host has no Python 3, the agent screen now offers **Install Python**. Windows installs Python 3.12 for the current user only (winget, falling back to the official python.org installer, no admin needed); Linux uses the server's package manager via sudo (apt, dnf, yum, zypper, apk, pacman); macOS uses Homebrew when present.
+- Windows: Python that is installed but missing from the SSH session's PATH (e.g. under `%LOCALAPPDATA%\Programs\Python`) is now found automatically; the Microsoft Store `python` alias is ignored.
+
+### Fixed
+- Windows: a Python path containing spaces is run through PowerShell so it works from both cmd and PowerShell shells.
+
 ## [0.10.11] - 2026-11-04
 
 ### Added
