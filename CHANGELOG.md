@@ -3,6 +3,11 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.16] - 2026-11-04
+
+### Fixed
+- Sending to a Claude Code session open in a Windows terminal failed with "Windows error 5": SSH runs in a different Windows session than the desktop, so it cannot reach that console. agentd now starts a small console bridge in the signed-in desktop session (via Task Scheduler, no window) and routes typing and screen reads through it.
+
 ## [0.10.15] - 2026-11-04
 ### Fixed
 - Windows hosts: AI agent chats are now live like on Linux. The app talks to the chat worker over an SSH port-forward (direct-tcpip to 127.0.0.1) instead of through the host's PowerShell/cmd, which could hold back streamed output; messages, permission answers, model and mode changes go over the same connection instead of starting a new Python process per message. Falls back to the previous method when the server disables TCP forwarding.

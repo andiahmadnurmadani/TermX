@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 
-VERSION = 14
+VERSION = 15
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -2285,16 +2285,151 @@ def _win_procs():
     return out
 
 
-def _wincon(pid, op, payload):
-    """Jalankan pembantu konsol (lihat cmd_wincon) untuk proses agent pid; kembalikan keluarannya."""
-    if not pid:
-        raise RuntimeError("no process to type into")
+def _wincon_direct(pid, op, payload):
     r = subprocess.run([sys.executable, os.path.abspath(__file__), "_wincon", str(pid), op],
                        input=jdump(payload), capture_output=True, text=True, timeout=20,
                        encoding="utf-8", errors="replace", creationflags=0x00000008 if WIN else 0)  # DETACHED_PROCESS
+    return r.returncode, r.stdout, (r.stderr or r.stdout or "console helper failed").strip()[-300:]
+
+
+def _wincon(pid, op, payload):
+    """Jalankan pembantu konsol (lihat cmd_wincon) untuk proses agent pid; kembalikan keluarannya.
+
+    Proses SSH di Windows berjalan di sesi Windows lain (sesi layanan) daripada jendela terminal di
+    desktop, sehingga AttachConsole ditolak (error 5/31). Dalam kasus itu permintaan diteruskan ke
+    jembatan kecil (_winbridge) yang dijalankan lewat Task Scheduler di sesi desktop pengguna."""
+    if not pid:
+        raise RuntimeError("no process to type into")
+    if not (WIN and _bridge_info()):
+        code, out, err = _wincon_direct(pid, op, payload)
+        if code == 0:
+            return out
+        if not (WIN and code == 3):
+            raise RuntimeError(err)
+    return _bridge_call(pid, op, payload)
+
+
+BRIDGE_TASK = "TermX-ConsoleBridge"
+
+
+def _bridge_path():
+    return os.path.join(os.path.expanduser("~"), ".termx", "winbridge.json")
+
+
+def _bridge_info():
+    """Jembatan konsol yang sedang hidup (versi sama), atau None."""
+    try:
+        with open(_bridge_path(), encoding="utf-8") as f:
+            b = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if b.get("v") != VERSION or not _pid_alive(int(b.get("pid") or 0)):
+        return None
+    return b
+
+
+def _bridge_start():
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    if not os.path.isfile(pyw):
+        pyw = sys.executable
+    try:
+        os.remove(_bridge_path())  # jembatan lama berhenti sendiri bila berkasnya bukan miliknya lagi
+    except OSError:
+        pass
+    tr = '"%s" "%s" _winbridge' % (pyw, os.path.abspath(__file__))
+    flags = 0x08000000  # CREATE_NO_WINDOW
+    c = subprocess.run(["schtasks", "/create", "/tn", BRIDGE_TASK, "/tr", tr, "/sc", "once", "/st", "00:00",
+                        "/it", "/f"], capture_output=True, text=True, errors="replace", timeout=30, creationflags=flags)
+    if c.returncode != 0:
+        raise RuntimeError("cannot create the TermX console bridge task: " + (c.stderr or c.stdout).strip()[-200:])
+    r = subprocess.run(["schtasks", "/run", "/tn", BRIDGE_TASK], capture_output=True, text=True,
+                       errors="replace", timeout=30, creationflags=flags)
     if r.returncode != 0:
-        raise RuntimeError((r.stderr or r.stdout or "console helper failed").strip()[-300:])
-    return r.stdout
+        raise RuntimeError("cannot start the TermX console bridge: " + (r.stderr or r.stdout).strip()[-200:])
+    for _ in range(100):
+        b = _bridge_info()
+        if b:
+            return b
+        time.sleep(0.1)
+    raise RuntimeError("the TermX console bridge did not start; is this Windows user signed in on the desktop?")
+
+
+def _bridge_call(pid, op, payload):
+    b = _bridge_info() or _bridge_start()
+    res = {}
+    for attempt in (0, 1):
+        try:
+            with socket.create_connection(("127.0.0.1", int(b["port"])), timeout=25) as s:
+                s.sendall((b["token"] + "\n" + jdump({"pid": pid, "op": op, "payload": payload}) + "\n").encode("utf-8"))
+                res = json.loads(s.makefile("r", encoding="utf-8", errors="replace").readline() or "{}")
+            break
+        except (OSError, ValueError):
+            if attempt:
+                raise RuntimeError("the TermX console bridge is not answering")
+            b = _bridge_start()
+    if not res.get("ok"):
+        err = res.get("err") or "console helper failed"
+        if "Windows error 5" in err:
+            err += " (if that terminal runs as Administrator, open Claude Code in a normal terminal)"
+        raise RuntimeError(err)
+    return res.get("out") or ""
+
+
+def cmd_winbridge(args):
+    """_winbridge: berjalan di sesi desktop (Task Scheduler) dan meneruskan _wincon dari sesi SSH."""
+    tok = uuid.uuid4().hex
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    srv.settimeout(30)
+    path = _bridge_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".%d" % os.getpid()
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(jdump({"v": VERSION, "pid": os.getpid(), "port": srv.getsockname()[1], "token": tok}))
+    os.replace(tmp, path)
+    lock = threading.Lock()
+    last = [time.time()]
+
+    def handle(c):
+        try:
+            c.settimeout(25)
+            f = c.makefile("rwb")
+            if f.readline().decode("utf-8", "replace").strip() != tok:
+                return
+            req = json.loads(f.readline().decode("utf-8", "replace") or "{}")
+            with lock:
+                code, out, err = _wincon_direct(int(req.get("pid") or 0), str(req.get("op") or ""),
+                                                req.get("payload") or {})
+            f.write((jdump({"ok": True, "out": out} if code == 0 else {"ok": False, "err": err}) + "\n").encode("utf-8"))
+            f.flush()
+        except Exception as e:  # noqa: BLE001
+            try:
+                c.sendall((jdump({"ok": False, "err": str(e)}) + "\n").encode("utf-8"))
+            except OSError:
+                pass
+        finally:
+            last[0] = time.time()
+            c.close()
+    while True:
+        try:
+            with open(path, encoding="utf-8") as f:
+                if json.load(f).get("pid") != os.getpid():
+                    return  # sudah diganti jembatan baru
+        except (OSError, ValueError):
+            return
+        if time.time() - last[0] > 6 * 3600:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return
+        try:
+            c, _ = srv.accept()
+        except socket.timeout:
+            continue
+        last[0] = time.time()
+        threading.Thread(target=handle, args=(c,), daemon=True).start()
 
 
 WIN_VK = {"enter": (0x0D, "\r", 0), "down": (0x28, "\0", 0x100), "up": (0x26, "\0", 0x100),
@@ -2320,9 +2455,9 @@ def cmd_wincon(args):
     if not k.AttachConsole(pid):
         err = ctypes.get_last_error()
         sys.stderr.write("cannot reach the console window of pid %d (Windows error %d)%s" % (
-            pid, err, " — it runs in another Windows session than SSH; see TermX help" if err in (5, 31) else ""))
+            pid, err, " — it runs in another Windows session than SSH" if err in (5, 31) else ""))
         sys.stderr.flush()
-        os._exit(2)
+        os._exit(3 if err in (5, 31) else 2)
     rw, share = 0x80000000 | 0x40000000, 0x1 | 0x2
     try:
         if op == "screen":
@@ -3724,7 +3859,7 @@ COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
     "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "usage": cmd_usage, "_worker": cmd_worker,
     "hermes-setup": cmd_hermes_setup, "wrap": cmd_wrap, "shell-setup": cmd_shell_setup,
-    "post": cmd_post, "isdir": cmd_isdir, "_wincon": cmd_wincon, "wport": cmd_wport,
+    "post": cmd_post, "isdir": cmd_isdir, "_wincon": cmd_wincon, "_winbridge": cmd_winbridge, "wport": cmd_wport,
 }
 
 
