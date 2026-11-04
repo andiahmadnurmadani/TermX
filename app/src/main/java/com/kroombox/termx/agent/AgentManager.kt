@@ -216,8 +216,25 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                     it.str("login"), it.str("login_cmd").ifEmpty { it.str("bin") }, it.str("resume_cmd").ifEmpty { it.str("bin") },
                 )
             }
-        }?.also { agentCache[hostId] = it } ?: emptyList()
+        }?.also { l ->
+            agentCache[hostId] = l
+            val ids = l.map { it.id }.distinct()
+            _installedByHost.update { it + (hostId to ids) }
+            prefs.edit().putString("inst_$hostId", ids.joinToString(",")).apply()
+        } ?: emptyList()
     }
+
+    /** Agent yang terpasang per host (hasil detect terakhir, disimpan permanen) untuk ikon di kartu host. */
+    private val _installedByHost = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val installedByHost: StateFlow<Map<String, List<String>>> = _installedByHost.asStateFlow()
+
+    fun lastInstalled(hostId: String): List<String> =
+        _installedByHost.value[hostId]
+            ?: prefs.getString("inst_$hostId", null)?.split(',')?.filter { it.isNotBlank() }
+            ?: emptyList()
+
+    /** Sudah dideteksi selama aplikasi ini berjalan (agar tidak menjalankan detect berulang-ulang). */
+    fun detectedThisRun(hostId: String): Boolean = _installedByHost.value.containsKey(hostId)
 
     suspend fun list(hostId: String): List<ChatMeta> = withContext(Dispatchers.IO) {
         (run(hostId, "list").arr("chats")?.mapNotNull { e -> (e as? JsonObject)?.toMeta() } ?: emptyList())

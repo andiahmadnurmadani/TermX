@@ -3,6 +3,10 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.14] - 2026-11-04
+### Changed
+- Host cards now show the logos of every AI agent installed on that host (Claude Code, Codex, opencode, Hermes, Antigravity…), not only the ones running. The list is detected when the host is connected and remembered, so the logos stay after the app restarts or the host disconnects. Agents that are running right now nod and carry a green dot; installed-only ones sit still and slightly dimmed.
+
 ## [0.10.13] - 2026-11-04
 ### Added
 - Windows hosts: running Claude Code (and Codex) sessions started in a Windows terminal (cmd, PowerShell, Windows Terminal) now show up under running agents. agentd lists processes with the Windows API (no `/proc`), recognises `claude.exe` and npm installs (`node …\@anthropic-ai\claude-code\cli.js`), and reads session id, folder and status from `~/.claude/sessions`.

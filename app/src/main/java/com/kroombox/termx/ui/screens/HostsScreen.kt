@@ -114,13 +114,19 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
     // Agent yang berjalan di host yang tersambung: diperbarui berkala, tampil sebagai logo di kartunya.
     val agentMgr = TermXApp.container.agents
     val runningAgents by agentMgr.runningByHost.collectAsState()
+    val installedAgents by agentMgr.installedByHost.collectAsState()
     // Host yang punya koneksi SSH hidup (terminal, SFTP, monitor, atau layar agent) dicek berkala;
     // host lain memakai hasil terakhir selama masih baru (lihat AgentManager.lastRunning).
     val hostIds = data.hosts.map { it.id }
+    val detectTried = remember { mutableSetOf<String>() }
     LaunchedEffect(hostIds) {
         while (true) {
             val live = hostIds.filter { id -> TermXApp.container.sessions.existingConnection(id)?.isConnected == true }
-            for (id in live) runCatching { agentMgr.running(id) }
+            for (id in live) {
+                // Agent terpasang: dideteksi sekali per jalannya aplikasi, hasilnya tetap tampil walau host terputus.
+                if (!agentMgr.detectedThisRun(id) && detectTried.add(id)) runCatching { agentMgr.detect(id) }
+                runCatching { agentMgr.running(id) }
+            }
             kotlinx.coroutines.delay(if (live.isEmpty()) 5_000 else 20_000)
         }
     }
@@ -186,8 +192,10 @@ fun HostsScreen(nav: Nav, modifier: Modifier = Modifier) {
                         }
                     }
                     items(list, key = { it.id }) { host ->
+                        val run = runningAgents.let { agentMgr.lastRunning(host.id) }
+                        val inst = installedAgents.let { agentMgr.lastInstalled(host.id) }
                         HostCard(host, connected = host.id in connectedHosts, nav = nav,
-                            agents = runningAgents.let { agentMgr.lastRunning(host.id) })
+                            agents = (run + inst).distinct(), running = run.toSet())
                     }
                 }
             }
@@ -288,7 +296,7 @@ private fun GroupChips(groups: List<HostGroup>, selected: String?, onSelect: (St
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<String> = emptyList()) {
+private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<String> = emptyList(), running: Set<String> = emptySet()) {
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val tailnet = com.kroombox.termx.net.Tailscale.isTailnetAddress(host.hostname)
@@ -296,7 +304,7 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<Stri
     // Ikon Tailscale & agent berjalan "terselip" di belakang pojok kanan atas kartu: digambar lebih dulu,
     // lalu kartu menutup separuh bawahnya.
     Box(Modifier.fillMaxWidth().padding(top = if (peek) 22.dp else 0.dp)) {
-    if (peek) CornerBadges(tailnet, agents, Modifier.align(Alignment.TopEnd).padding(end = 18.dp).offset(y = (-22).dp))
+    if (peek) CornerBadges(tailnet, agents, running, Modifier.align(Alignment.TopEnd).padding(end = 18.dp).offset(y = (-22).dp))
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
@@ -359,7 +367,7 @@ private fun HostCard(host: Host, connected: Boolean, nav: Nav, agents: List<Stri
  * mengangguk pelan, Tailscale diam karena ia jaringan, bukan pekerja.
  */
 @Composable
-private fun CornerBadges(tailnet: Boolean, agents: List<String>, modifier: Modifier = Modifier) {
+private fun CornerBadges(tailnet: Boolean, agents: List<String>, running: Set<String> = emptySet(), modifier: Modifier = Modifier) {
     val shown = agents.distinct()
     val heads = (if (tailnet) listOf("~tailscale") else emptyList()) + shown.take(5)
     val bob = androidx.compose.animation.core.rememberInfiniteTransition(label = "bob")
@@ -371,6 +379,7 @@ private fun CornerBadges(tailnet: Boolean, agents: List<String>, modifier: Modif
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Top) {
         heads.forEachIndexed { i, id ->
             val isNet = id == "~tailscale"
+            val live = !isNet && id in running   // sedang berjalan: mengangguk + titik hijau; terpasang saja: diam
             // lompatan masuk: dari balik kartu naik ke posisi, bergiliran
             val rise = remember(id) { androidx.compose.animation.core.Animatable(1f) }
             LaunchedEffect(id) {
@@ -382,7 +391,7 @@ private fun CornerBadges(tailnet: Boolean, agents: List<String>, modifier: Modif
             Box(
                 Modifier
                     .graphicsLayer {
-                        val nod = if (isNet) 0f else kotlin.math.sin(phase + i * 1.1f)
+                        val nod = if (live) kotlin.math.sin(phase + i * 1.1f) else 0f
                         translationY = rise.value * 18.dp.toPx() + nod * 1.6.dp.toPx()
                         rotationZ = tilt * (1f - rise.value * 0.5f) + nod * 2f
                     }
@@ -397,8 +406,13 @@ private fun CornerBadges(tailnet: Boolean, agents: List<String>, modifier: Modif
             ) {
                 // wajah logo di bagian yang terlihat; sisi bawah tertutup kartu
                 val res = if (isNet) R.drawable.ic_tailscale else agentLogo(id)
-                if (res != null) Icon(androidx.compose.ui.res.painterResource(res), if (isNet) "Tailscale" else id, tint = tint, modifier = Modifier.padding(top = 2.dp).size(16.dp))
-                else Text(id.take(1).uppercase(), color = tint, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 1.dp))
+                val face = if (isNet || live) tint else tint.copy(alpha = 0.7f)
+                if (res != null) Icon(androidx.compose.ui.res.painterResource(res), if (isNet) "Tailscale" else id, tint = face, modifier = Modifier.padding(top = 2.dp).size(16.dp))
+                else Text(id.take(1).uppercase(), color = face, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 1.dp))
+                if (live) Box(
+                    Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 2.dp).size(6.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape).background(Palette.Accent),
+                )
             }
         }
         if (shown.size > 5) Box(
