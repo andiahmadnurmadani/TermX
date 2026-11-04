@@ -3,6 +3,11 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.17] - 2026-11-04
+
+### Fixed
+- The Windows console bridge from 0.10.16 never took effect: chat workers run for a long time and kept the old agentd code in memory after an update. Workers now record their agentd version and are replaced by the new one on the next connect (never in the middle of a running turn).
+
 ## [0.10.16] - 2026-11-04
 
 ### Fixed

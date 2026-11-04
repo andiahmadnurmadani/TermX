@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 
-VERSION = 15
+VERSION = 16
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -417,9 +417,31 @@ def stop_worker(cid, force=False):
         pass
 
 
+def _worker_version(cid):
+    try:
+        with open(os.path.join(chat_dir(cid), "worker.ver"), encoding="utf-8") as f:
+            return int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
+
 def spawn_worker(cid):
     if worker_alive(cid):
-        return
+        # Worker berjalan lama dan memuat kode agentd di memori: setelah agentd diperbarui ia harus diganti,
+        # kalau tidak perbaikan baru tidak pernah berlaku. Jangan putus giliran yang sedang berjalan.
+        if _worker_version(cid) == VERSION or (read_meta(cid) or {}).get("status") == "working":
+            return
+        stop_worker(cid)
+        for _ in range(80):
+            if not worker_alive(cid):
+                break
+            time.sleep(0.05)
+        if worker_alive(cid):
+            stop_worker(cid, force=True)
+            for _ in range(40):
+                if not worker_alive(cid):
+                    break
+                time.sleep(0.05)
     log = open(os.path.join(chat_dir(cid), "worker.log"), "ab")
     argv = [sys.executable, os.path.abspath(__file__), "_worker", cid]
     if WIN:
@@ -702,6 +724,8 @@ class Worker:
         srv.settimeout(1.0)
         with open(os.path.join(self.dir, "worker.pid"), "w") as f:
             f.write(str(os.getpid()))
+        with open(os.path.join(self.dir, "worker.ver"), "w") as f:
+            f.write(str(VERSION))
         if USE_TCP:  # alamat ditulis terakhir: tandanya worker siap
             with open(sp + ".tmp", "w", encoding="utf-8") as f:
                 f.write("%d %s" % (srv.getsockname()[1], tok))
