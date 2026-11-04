@@ -3,6 +3,20 @@
 All notable changes to TermX are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/). Releases are built from `vX.Y.Z` tags.
 
+## [0.10.2] - 2026-11-04
+
+### Changed
+- Agents running on the server now open in the chat view instead of a terminal. Tap a session under "Running on
+  the server" to see its conversation (read from the agent's own transcript for Claude Code and Codex) and follow
+  it live. Messages you send are typed into the tmux or herdr session, so the terminal and the phone stay in sync.
+  Approval prompts show up as a card with Allow / Always / Deny. Long-press a session to open it in a terminal.
+- Every running session can be opened, including ones in other terminals. Those are shown read-only, and sending a
+  message continues the conversation in TermX.
+- The server helper is updated to version 3.
+
+### Fixed
+- Sessions under "Running on the server" that could not be tapped.
+
 ## [0.10.1] - 2026-11-04
 
 ### Added

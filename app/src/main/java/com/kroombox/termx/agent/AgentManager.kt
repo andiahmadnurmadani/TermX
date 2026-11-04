@@ -141,11 +141,19 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
                         it.str("session"), it.str("title"),
                         t?.str("session") ?: "", t?.str("window") ?: "", t?.str("pane") ?: "", t?.bool("attached") == true,
                         h?.str("pane") ?: "", h?.str("status") ?: "",
+                        it.str("status"), it.str("chat"),
                     )
                 }
             } ?: emptyList(),
             o.str("herdr_bin"),
         )
+    }
+
+    /** Buka sesi yang berjalan sebagai chat (riwayat dari transkrip agent); mengembalikan id chat. */
+    suspend fun mirror(hostId: String, r: RunningAgent): String = withContext(Dispatchers.IO) {
+        val id = run(hostId, "mirror ${r.pid} ${shq(r.herdrPane)}", timeoutSec = 40).str("id")
+        runCatching { list(hostId) }
+        id
     }
 
     /** Pilih window & pane tmux tujuan sebelum attach (agar langsung tampil pane agent-nya). */
@@ -181,6 +189,9 @@ class AgentManager(private val context: Context, private val sessions: SessionMa
         str("id"), str("agent"), str("cwd"), str("title"), str("model"), str("mode"), str("session"),
         long("created"), long("updated"), str("status"), dbl("cost"), long("tokens_in"), long("tokens_out"),
         bool("alive") == true,
+        obj("mirror")?.let { m ->
+            MirrorInfo(m.str("where"), m.str("place"), m.str("tmux"), m.str("herdr_pane"), m.str("herdr_bin"))
+        },
     )
 
     // ------------------------------------------------------------ folder terakhir

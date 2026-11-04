@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
@@ -130,6 +131,7 @@ import com.kroombox.termx.agent.Link
 import com.kroombox.termx.agent.NoteItem
 import com.kroombox.termx.agent.PermItem
 import com.kroombox.termx.agent.RunningAgent
+import com.kroombox.termx.agent.ScreenItem
 import com.kroombox.termx.agent.RunningInfo
 import com.kroombox.termx.agent.SlashCommand
 import com.kroombox.termx.agent.TextItem
@@ -256,6 +258,8 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
     var refreshKey by remember { mutableIntStateOf(0) }
     var renaming by remember { mutableStateOf<ChatMeta?>(null) }
     var deleting by remember { mutableStateOf<ChatMeta?>(null) }
+    var opening by remember { mutableStateOf<Pair<Long, String>?>(null) }
+    var openError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val live by mgr.chats.collectAsState()
     val limits = remember(refreshKey, chats) { mgr.savedLimits(hostId) }
@@ -357,12 +361,26 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                     item("run-h") { SectionHeader(stringResource(R.string.agent_running)) }
                     run.forEach { r ->
                         item("run-${r.where}-${r.pid}-${r.herdrPane}") {
-                            RunningRow(r, agentName(r.agent, agents)) { takeover ->
-                                when (r.where) {
-                                    "tmux" -> scope.launch { mgr.selectTmuxPane(hostId, r); nav.attachTmux(hostId, r.tmuxSession) }
-                                    "herdr" -> nav.attachHerdr(hostId, running?.herdrBin ?: "", r.herdrPane, takeover)
-                                }
-                            }
+                            RunningRow(
+                                r, agentName(r.agent, agents), busy = opening == r.pid to r.herdrPane,
+                                onChat = {
+                                    if (opening == null) {
+                                        opening = r.pid to r.herdrPane
+                                        scope.launch {
+                                            runCatching { mgr.mirror(hostId, r) }
+                                                .onSuccess { nav.agentChat(hostId, it) }
+                                                .onFailure { e -> openError = e.message ?: e.toString() }
+                                            opening = null
+                                        }
+                                    }
+                                },
+                                onTerminal = { takeover ->
+                                    when (r.where) {
+                                        "tmux" -> scope.launch { mgr.selectTmuxPane(hostId, r); nav.attachTmux(hostId, r.tmuxSession) }
+                                        "herdr" -> nav.attachHerdr(hostId, running?.herdrBin ?: "", r.herdrPane, takeover)
+                                    }
+                                },
+                            )
                         }
                     }
                 }
@@ -407,6 +425,15 @@ fun AgentHomeScreen(nav: Nav, hostId: String) {
                 }
             }
         }
+    }
+
+    openError?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { openError = null },
+            title = { Text(stringResource(R.string.agent_running_open_failed)) },
+            text = { Text(msg) },
+            confirmButton = { TextButton(onClick = { openError = null; refreshKey++ }) { Text(stringResource(R.string.agent_refresh)) } },
+        )
     }
 
     if (showNew) {
@@ -596,18 +623,25 @@ internal fun ChatRow(m: ChatMeta, agent: String, connected: Boolean, onOpen: () 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun RunningRow(r: RunningAgent, agent: String, onOpen: (takeover: Boolean) -> Unit) {
+internal fun RunningRow(
+    r: RunningAgent,
+    agent: String,
+    busy: Boolean = false,
+    onChat: () -> Unit,
+    onTerminal: (takeover: Boolean) -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
-    val canOpen = r.where == "tmux" || (r.where == "herdr" && r.herdrPane.isNotBlank())
+    val canTerminal = r.where == "tmux" || (r.where == "herdr" && r.herdrPane.isNotBlank())
     val place = when (r.where) {
         "tmux" -> "tmux · ${r.tmuxSession}:${r.tmuxWindow}.${r.tmuxPane}"
         "herdr" -> "herdr · ${r.herdrPane}"
         else -> S.get(R.string.agent_running_other, r.tty.ifBlank { "?" })
     }
+    val status = r.herdrStatus.ifBlank { r.status }
     Box {
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                .combinedClickable(enabled = canOpen, onClick = { onOpen(false) }, onLongClick = { if (r.where == "herdr") menu = true })
+                .combinedClickable(onClick = onChat, onLongClick = { menu = true })
                 .padding(horizontal = 4.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -628,21 +662,28 @@ internal fun RunningRow(r: RunningAgent, agent: String, onOpen: (takeover: Boole
                 if (r.startedSec > 0) Text(timeAgo(r.startedSec * 1000), style = MaterialTheme.typography.labelSmall, color = Palette.TextDim)
                 Spacer(Modifier.height(4.dp))
                 when {
-                    r.herdrStatus == "working" -> PulseDot(Palette.Accent)
-                    r.herdrStatus == "blocked" || r.herdrStatus == "waiting" -> StatusDot(Palette.Warn, 7.dp)
+                    status == "working" -> PulseDot(Palette.Accent)
+                    status == "blocked" || status == "waiting" -> StatusDot(Palette.Warn, 7.dp)
                     r.tmuxAttached -> StatusDot(Palette.Blue, 7.dp)
                     else -> StatusDot(Palette.TextDim, 7.dp)
                 }
             }
-            if (canOpen) {
-                Icon(Icons.Rounded.Terminal, null, tint = Palette.TextDim, modifier = Modifier.padding(start = 12.dp, end = 8.dp).size(20.dp))
+            Box(Modifier.padding(start = 12.dp, end = 8.dp).size(20.dp), contentAlignment = Alignment.Center) {
+                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Palette.Accent)
+                else Icon(Icons.AutoMirrored.Rounded.Chat, null, tint = if (r.chat.isNotBlank()) Palette.Accent else Palette.TextDim, modifier = Modifier.size(20.dp))
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text(stringResource(R.string.agent_running_open)) }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
-                onClick = { menu = false; onOpen(false) })
-            DropdownMenuItem(text = { Text(stringResource(R.string.agent_running_takeover)) }, leadingIcon = { Icon(Icons.Rounded.Key, null) },
-                onClick = { menu = false; onOpen(true) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.agent_running_chat)) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Chat, null) },
+                onClick = { menu = false; onChat() })
+            if (canTerminal) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.agent_running_open)) }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
+                    onClick = { menu = false; onTerminal(false) })
+            }
+            if (r.where == "herdr" && r.herdrPane.isNotBlank()) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.agent_running_takeover)) }, leadingIcon = { Icon(Icons.Rounded.Key, null) },
+                    onClick = { menu = false; onTerminal(true) })
+            }
         }
     }
 }
@@ -852,7 +893,15 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
     val currentMode = state.mode.ifBlank { meta?.mode ?: "" }
     val cwd = meta?.cwd ?: "~"
 
+    val mirror = meta?.mirror?.takeIf { !state.mirrorEnded }
+
     fun openTerminal(login: Boolean) {
+        if (!login && mirror != null) {
+            when (mirror.where) {
+                "tmux" -> { nav.attachTmux(hostId, mirror.tmuxTarget.removePrefix("=").substringBefore(':')); return }
+                "herdr" -> { nav.attachHerdr(hostId, mirror.herdrBin, mirror.herdrPane, false); return }
+            }
+        }
         val a = agent ?: return
         val cmd = when {
             login -> a.loginCmd
@@ -935,8 +984,8 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
                 onText = { input = it },
                 state = state,
                 agentName = agent?.name ?: meta?.agent ?: "",
-                models = modelChoices, model = currentModel,
-                modes = modeChoices, mode = currentMode,
+                models = if (mirror != null) emptyList() else modelChoices, model = if (mirror != null) "" else currentModel,
+                modes = if (mirror != null) emptyList() else modeChoices, mode = currentMode,
                 onModel = { chat.setModel(it); mgr.rememberChoice(hostId, meta?.agent ?: "", it) },
                 onMode = { chat.setMode(it) },
                 onSend = { send(input) },
@@ -948,6 +997,7 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
             if (state.link == Link.FAILED) {
                 LinkBanner(state.linkError ?: stringResource(R.string.agent_link_failed)) { chat.retry() }
             }
+            if (mirror != null) MirrorBanner(mirror)
             if (state.items.isEmpty() && !state.working) {
                 ChatEmpty(agent?.name ?: meta?.agent ?: "", cwd, meta?.agent, Modifier.weight(1f)) { send(it) }
             } else {
@@ -988,6 +1038,21 @@ fun AgentChatScreen(nav: Nav, hostId: String, chatId: String) {
         },
         onDismiss = { deleting = false },
     )
+}
+
+@Composable
+private fun MirrorBanner(m: com.kroombox.termx.agent.MirrorInfo) {
+    Row(
+        Modifier.fillMaxWidth().background(Palette.Accent.copy(alpha = 0.10f)).padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PulseDot(Palette.Accent)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            stringResource(if (m.where == "tmux" || m.where == "herdr") R.string.agent_mirror_live else R.string.agent_mirror_other, m.place),
+            color = Palette.Text, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable
@@ -1077,6 +1142,24 @@ internal fun ChatItemView(item: ChatItem, onAnswer: (PermItem, Boolean, Boolean)
         is PermItem -> PermCard(item, onAnswer)
         is NoteItem -> NoteRow(item, onLogin)
         is TurnItem -> TurnFooter(item, onLogin)
+        is ScreenItem -> ScreenCard(item)
+    }
+}
+
+@Composable
+private fun ScreenCard(item: ScreenItem) {
+    Surface(shape = RoundedCornerShape(14.dp), color = Palette.Surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(stringResource(R.string.agent_screen_title), style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
+            Spacer(Modifier.height(6.dp))
+            SelectionContainer {
+                Text(
+                    item.text.lines().takeLast(30).joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                    color = Palette.Text,
+                )
+            }
+        }
     }
 }
 

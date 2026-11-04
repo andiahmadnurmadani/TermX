@@ -654,4 +654,9 @@
     <string name="agent_running_other">terminal lain (%1$s)</string>
     <string name="agent_running_open">Buka di terminal</string>
     <string name="agent_running_takeover">Ambil alih dari layar lain</string>
+    <string name="agent_running_chat">Buka sebagai chat</string>
+    <string name="agent_running_open_failed">Sesi ini tidak bisa dibuka</string>
+    <string name="agent_mirror_live">Live dari %1$s · pesan Anda diketik ke sesi itu</string>
+    <string name="agent_mirror_other">Berjalan di %1$s · mengirim pesan akan melanjutkannya di TermX</string>
+    <string name="agent_screen_title">Layar agent</string>
 </resources>

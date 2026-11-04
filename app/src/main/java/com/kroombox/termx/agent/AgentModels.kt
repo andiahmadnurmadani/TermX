@@ -44,6 +44,19 @@ data class ChatMeta(
     val tokensIn: Long,
     val tokensOut: Long,
     val alive: Boolean,
+    /** Diisi bila chat ini mengikuti sesi agent yang berjalan di tmux/herdr (bukan dijalankan TermX). */
+    val mirror: MirrorInfo? = null,
+)
+
+/** Sesi luar yang diikuti chat: pesan diketik ke pane tmux/herdr-nya. */
+data class MirrorInfo(
+    /** "tmux", "herdr", atau "other". */
+    val where: String,
+    /** Label tempat, mis. "herdr w4:p1" atau "tmux main:0.1". */
+    val place: String,
+    val tmuxTarget: String,
+    val herdrPane: String,
+    val herdrBin: String,
 )
 
 /** Agent yang sedang berjalan di server di luar TermX (tmux, herdr, atau terminal lain). */
@@ -63,6 +76,10 @@ data class RunningAgent(
     val tmuxAttached: Boolean = false,
     val herdrPane: String = "",
     val herdrStatus: String = "",
+    /** working / idle / blocked bila diketahui (herdr atau berkas sesi Claude). */
+    val status: String = "",
+    /** Chat TermX yang sudah mengikuti sesi ini (kosong bila belum). */
+    val chat: String = "",
 )
 
 data class RunningInfo(val agents: List<RunningAgent>, val herdrBin: String)
@@ -102,6 +119,9 @@ data class PermItem(
     val allowed: Boolean?,
 ) : ChatItem
 
+/** Tampilan teks terbaru agent yang tidak punya transkrip (diperbarui di tempat). */
+data class ScreenItem(override val key: String, val text: String) : ChatItem
+
 data class NoteItem(override val key: String, val text: String, val error: Boolean) : ChatItem
 
 data class TurnItem(
@@ -140,6 +160,8 @@ data class ChatState(
     val contextSize: Long = 0,
     /** Status sementara (mis. "Reconnecting… 2/5"), hilang saat ada kemajuan. */
     val retry: String? = null,
+    /** Sesi luar sudah dilanjutkan di TermX (chat tidak lagi mengikuti tmux/herdr). */
+    val mirrorEnded: Boolean = false,
 )
 
 // ------------------------------------------------------------------ JSON kecil
@@ -276,6 +298,11 @@ class ChatReducer {
                     o.bool("ok") != false, o.str("error").ifEmpty { null }))
                 state = state.copy(cost = state.cost + cost, tokensIn = state.tokensIn + o.long("in"), tokensOut = state.tokensOut + o.long("out"))
             }
+            "screen" -> {
+                order.remove("screen"); items.remove("screen")
+                put(ScreenItem("screen", o.str("text")))
+            }
+            "mirror_end" -> state = state.copy(mirrorEnded = true)
             "note" -> put(NoteItem("n$n", o.str("msg"), false))
             "error" -> put(NoteItem("e$n", o.str("msg"), true))
             "stderr" -> {

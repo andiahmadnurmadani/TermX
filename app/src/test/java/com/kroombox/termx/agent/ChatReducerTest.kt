@@ -94,4 +94,17 @@ class ChatReducerTest {
         r.apply(ev("""{"t":"text_end","id":"x","n":1}"""))
         assertTrue(r.snapshot().items.isEmpty())
     }
+
+    @Test fun screenUpdatesInPlaceAndMirrorEnds() {
+        val r = ChatReducer()
+        r.apply(ev("""{"t":"screen","text":"one","n":0}"""))
+        r.apply(ev("""{"t":"note","msg":"x","n":1}"""))
+        r.apply(ev("""{"t":"screen","text":"two","n":2}"""))
+        val s = r.snapshot()
+        assertEquals(2, s.items.size)
+        assertEquals(ScreenItem("screen", "two"), s.items.last())
+        assertFalse(s.mirrorEnded)
+        r.apply(ev("""{"t":"mirror_end","n":3}"""))
+        assertTrue(r.snapshot().mirrorEnded)
+    }
 }

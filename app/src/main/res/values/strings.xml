@@ -655,4 +655,9 @@
     <string name="agent_running_other">another terminal (%1$s)</string>
     <string name="agent_running_open">Open in terminal</string>
     <string name="agent_running_takeover">Take over from other screens</string>
+    <string name="agent_running_chat">Open as chat</string>
+    <string name="agent_running_open_failed">Could not open this session</string>
+    <string name="agent_mirror_live">Live from %1$s · your messages are typed into that session</string>
+    <string name="agent_mirror_other">Running in %1$s · sending a message continues it here in TermX</string>
+    <string name="agent_screen_title">Agent screen</string>
 </resources>

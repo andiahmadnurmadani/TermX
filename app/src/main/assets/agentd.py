@@ -21,7 +21,7 @@ import threading
 import time
 import uuid
 
-VERSION = 2
+VERSION = 3
 ROOT = os.path.expanduser("~/.termx/agents")
 IDLE_EXIT_SEC = 30 * 60          # worker berhenti bila tidak ada yang menyambung & tidak bekerja selama ini
 FLUSH_SEC = 0.05                  # penggabungan potongan teks
@@ -310,7 +310,7 @@ class Worker:
             self.seq = sum(1 for _ in f)
         self.busy = False
         self.last_activity = time.time()
-        self.adapter = ADAPTERS[self.meta["agent"]](self)
+        self.adapter = MirrorAdapter(self) if self.meta.get("mirror") else ADAPTERS[self.meta["agent"]](self)
 
     def emit(self, ev):
         with self.lock:
@@ -1370,12 +1370,80 @@ def _session_arg(argv):
     for i, a in enumerate(argv):
         if a in ("--resume", "-r", "--session-id", "--session") and i + 1 < len(argv):
             return re.sub(r"\.jsonl$", "", os.path.basename(argv[i + 1]))
+        if a == "resume" and i + 1 < len(argv) and not argv[i + 1].startswith("-"):  # codex resume <id>
+            return argv[i + 1]
         if a.startswith("--resume=") or a.startswith("--session="):
             return re.sub(r"\.jsonl$", "", os.path.basename(a.split("=", 1)[1]))
     return ""
 
 
+def _claude_session(pid):
+    """Sesi interaktif Claude Code menulis ~/.claude/sessions/<pid>.json (id sesi, status, nama)."""
+    try:
+        with open(os.path.expanduser("~/.claude/sessions/%d.json" % pid), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _claude_transcript(sid):
+    if not sid or "/" in sid:
+        return ""
+    import glob
+    hits = glob.glob(os.path.expanduser("~/.claude/projects/*/%s.jsonl" % sid))
+    return max(hits, key=os.path.getmtime) if hits else ""
+
+
+def _codex_transcript(sid, cwd, since):
+    """Rollout Codex: menurut id sesi, atau yang terbaru untuk folder ini sejak proses mulai."""
+    import glob
+    files = glob.glob(os.path.expanduser("~/.codex/sessions/*/*/*/rollout-*.jsonl"))
+    if sid:
+        hit = [f for f in files if f.endswith(sid + ".jsonl")]
+        if hit:
+            return hit[0]
+    best = ""
+    for f in sorted(files, key=os.path.getmtime, reverse=True)[:40]:
+        if since and os.path.getmtime(f) < since - 5:
+            break
+        try:
+            with open(f, encoding="utf-8") as fh:
+                first = json.loads(fh.readline() or "{}")
+        except Exception:
+            continue
+        if (first.get("payload") or {}).get("cwd") == cwd:
+            best = f
+            break
+    return best
+
+
+def transcript_of(agent, pid, session, cwd, started):
+    if agent == "claude":
+        info = _claude_session(pid) if pid else {}
+        sid = info.get("sessionId") or session
+        return sid, _claude_transcript(sid)
+    if agent == "codex":
+        f = _codex_transcript(session, cwd, started)
+        sid = session or (re.search(r"([0-9a-f-]{36})\.jsonl$", f).group(1) if f and re.search(r"([0-9a-f-]{36})\.jsonl$", f) else "")
+        return sid, f
+    return session, ""
+
+
 def cmd_running(_args):
+    out, herdr_bin = _running()
+    mirrors = {}
+    if os.path.isdir(ROOT):
+        for cid in os.listdir(ROOT):
+            m = read_meta(cid) or {}
+            mi = m.get("mirror") or {}
+            if mi:
+                mirrors[(mi.get("pid") or 0, mi.get("herdr_pane") or "")] = cid
+    for f in out:
+        f["chat"] = mirrors.get((f["pid"], (f.get("herdr") or {}).get("pane", ""))) or ""
+    print(jdump({"running": out, "herdr_bin": herdr_bin or "", "tmux": bool(shutil.which("tmux"))}))
+
+
+def _running():
     procs = _procs()
     panes = _tmux_panes()
     herdr_bin, herdr_list = _herdr_agents()
@@ -1435,13 +1503,527 @@ def cmd_running(_args):
                     "herdr": {"pane": h.get("pane_id") or "", "workspace": h.get("workspace_id") or "",
                               "status": h.get("agent_status") or "", "focused": bool(h.get("focused"))}})
     out.extend(hproc)
+    for f in out:  # Claude Code: id sesi, nama & status dari berkas sesinya
+        if f["agent"] == "claude" and f["pid"]:
+            info = _claude_session(f["pid"])
+            f["session"] = info.get("sessionId") or f["session"]
+            if not f.get("title"):
+                f["title"] = info.get("name") or ""
+            if info.get("status") and not (f.get("herdr") or {}).get("status"):
+                f["status"] = "working" if info["status"] == "busy" else info["status"]
     out.sort(key=lambda f: f.get("started") or 0, reverse=True)
-    print(jdump({"running": out, "herdr_bin": herdr_bin or "", "tmux": bool(shutil.which("tmux"))}))
+    return out, herdr_bin
+
+
+# ------------------------------------------------------------------ chat langsung untuk sesi di tmux / herdr
+# Sesi agent yang berjalan di luar TermX ditampilkan sebagai chat: riwayat dibaca dari transkrip agent
+# (Claude Code, Codex), pesan diketik ke pane tmux/herdr-nya. Prosesnya tidak pernah dihentikan TermX.
+
+IMPORT_BYTES = 3 * 1024 * 1024    # riwayat awal: bagian akhir transkrip
+IMPORT_EVENTS = 600
+BLOCKED_RE = re.compile(r"Do you want to|Would you like to|Allow (this|once|always)|\(y/n\)|\[y/N\]|❯ ?1\. Yes|Yes, proceed|"
+                        r"Press enter to confirm", re.I)
+
+
+def _plain_user(text):
+    """Teks pengguna dari transkrip; None untuk pesan sistem/otomatis."""
+    s = (text or "").strip()
+    if not s:
+        return None
+    m = re.match(r"<command-name>(.*?)</command-name>", s, re.S)
+    if m:
+        args = re.search(r"<command-args>(.*?)</command-args>", s, re.S)
+        return (m.group(1).strip() + " " + (args.group(1).strip() if args else "")).strip()
+    if s.startswith("<") or s.startswith("Caveat:") or s.startswith("# AGENTS.md"):
+        return None
+    return s
+
+
+class TranscriptConverter:
+    """Mengubah baris transkrip agent menjadi event chat TermX (format yang sama dengan adapter biasa)."""
+
+    def __init__(self, agent):
+        self.agent = agent
+        self.n = 0
+
+    def convert(self, line):
+        try:
+            o = json.loads(line)
+        except Exception:
+            return []
+        try:
+            return self._claude(o) if self.agent == "claude" else self._codex(o) if self.agent == "codex" else []
+        except Exception:
+            return []
+
+    def _text(self, bid, text):
+        return [{"t": "text_start", "id": bid}, {"t": "delta", "id": bid, "d": text}, {"t": "text_end", "id": bid}]
+
+    def _claude(self, o):
+        t = o.get("type")
+        if o.get("isSidechain"):
+            return []
+        if t == "system":
+            st = o.get("subtype")
+            if st == "turn_duration":
+                return [{"t": "done", "ok": True, "cost": 0, "in": 0, "out": 0, "ms": o.get("durationMs")}]
+            if st == "compact_boundary":
+                return [{"t": "note", "msg": "Conversation compacted"}]
+            return []
+        msg = o.get("message") or {}
+        content = msg.get("content")
+        if t == "user":
+            if o.get("isMeta") or o.get("isCompactSummary"):
+                return []
+            if isinstance(content, str):
+                if content.startswith("[Request interrupted"):
+                    return [{"t": "note", "msg": "Interrupted"}]
+                u = _plain_user(content)
+                return [{"t": "user", "text": u}] if u else []
+            out, texts = [], []
+            for b in content or []:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_result":
+                    out.append({"t": "tool_result", "id": b.get("tool_use_id"), "ok": not b.get("is_error"),
+                                "out": clip(result_text(b.get("content")))})
+                elif b.get("type") == "text":
+                    if b.get("text", "").startswith("[Request interrupted"):
+                        out.append({"t": "note", "msg": "Interrupted"})
+                    else:
+                        texts.append(b.get("text", ""))
+                elif b.get("type") == "image":
+                    texts.append("[image]")
+            u = _plain_user("\n".join(texts))
+            return ([{"t": "user", "text": u}] if u else []) + out
+        if t == "assistant":
+            out = []
+            for i, b in enumerate(content or []):
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text" and b.get("text", "").strip():
+                    out += self._text("%s:%d" % (o.get("uuid") or self.n, i), b["text"])
+                elif b.get("type") == "tool_use":
+                    out.append({"t": "tool", "id": b.get("id"), "name": b.get("name"),
+                                "input": summarize_input(b.get("name"), b.get("input"))})
+            self.n += 1
+            return out
+        return []
+
+    def _codex(self, o):
+        t, p = o.get("type"), o.get("payload") or {}
+        pt = p.get("type")
+        if t == "event_msg":
+            if pt == "task_started":
+                return [{"t": "status", "s": "working"}]
+            if pt == "task_complete":
+                return [{"t": "done", "ok": not p.get("error"), "cost": 0, "in": 0, "out": 0}]
+            return []
+        if t != "response_item":
+            return []
+        self.n += 1
+        if pt == "message":
+            parts = [c.get("text", "") for c in p.get("content") or [] if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text")]
+            if p.get("role") == "user":
+                u = _plain_user("\n".join(parts))
+                return [{"t": "user", "text": u}] if u else []
+            if p.get("role") == "assistant" and "".join(parts).strip():
+                return self._text(p.get("id") or "cx%d" % self.n, "\n".join(parts))
+            return []
+        if pt in ("function_call", "custom_tool_call", "local_shell_call"):
+            raw = p.get("arguments") if pt == "function_call" else p.get("input") or p.get("action")
+            try:
+                inp = json.loads(raw) if isinstance(raw, str) and raw.strip().startswith("{") else raw
+            except Exception:
+                inp = raw
+            if isinstance(inp, dict):
+                cmd = inp.get("cmd") or inp.get("command")
+                if isinstance(cmd, list):
+                    inp = dict(inp, command=" ".join(cmd[2:] if cmd[:2] in (["bash", "-lc"], ["sh", "-c"]) else cmd))
+                elif isinstance(cmd, str):
+                    inp = dict(inp, command=cmd)
+            return [{"t": "tool", "id": p.get("call_id") or p.get("id"), "name": p.get("name") or "shell",
+                     "input": summarize_input(p.get("name") or "", inp)}]
+        if pt in ("function_call_output", "custom_tool_call_output"):
+            out = p.get("output")
+            if isinstance(out, dict):
+                out = out.get("content") or out.get("output") or jdump(out)
+            if isinstance(out, str) and out.startswith("{"):
+                try:
+                    j = json.loads(out)
+                    out = j.get("output", out) if isinstance(j, dict) else out
+                except Exception:
+                    pass
+            return [{"t": "tool_result", "id": p.get("call_id"), "ok": True, "out": clip(result_text(out))}]
+        return []
+
+
+def _proc_is(pid, agent):
+    if not pid:
+        return False
+    raw = _read("/proc/%d/cmdline" % pid, binary=True)
+    return bool(raw) and _agent_of([a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]) == agent
+
+
+def _screen(mi, lines=60):
+    try:
+        if mi.get("where") == "herdr" and mi.get("herdr_pane"):
+            r = subprocess.run([mi.get("herdr_bin") or "herdr", "agent", "read", mi["herdr_pane"], "--source", "recent",
+                                "--lines", str(lines)], capture_output=True, text=True, timeout=5)
+        elif mi.get("where") == "tmux" and mi.get("tmux"):
+            r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", mi["tmux"], "-S", "-%d" % lines],
+                               capture_output=True, text=True, timeout=5)
+        else:
+            return ""
+    except Exception:
+        return ""
+    rows = [x.rstrip() for x in (r.stdout or "").splitlines()]
+    while rows and not rows[-1]:
+        rows.pop()
+    return "\n".join(rows[-lines:])
+
+
+def _herdr_status(mi):
+    try:
+        r = subprocess.run([mi.get("herdr_bin") or "herdr", "agent", "get", mi["herdr_pane"]],
+                           capture_output=True, text=True, timeout=4)
+        d = json.loads(r.stdout or "{}").get("result") or {}
+        a = d.get("agent") if isinstance(d.get("agent"), dict) else d
+        return a.get("agent_status") or "", True
+    except Exception:
+        return "", False
+
+
+def _import_history(agent, path):
+    """Event dari bagian akhir transkrip + offset byte setelah baris lengkap terakhir."""
+    if not path or not os.path.exists(path):
+        return [], 0
+    size = os.path.getsize(path)
+    start = max(0, size - IMPORT_BYTES)
+    with open(path, "rb") as f:
+        f.seek(start)
+        data = f.read()
+    end = data.rfind(b"\n") + 1
+    data = data[:end]
+    if start > 0:
+        data = data[data.find(b"\n") + 1:]
+    conv = TranscriptConverter(agent)
+    groups = [conv.convert(l) for l in data.decode("utf-8", "replace").splitlines() if l.strip()]
+    out, count = [], 0
+    for g in reversed(groups):
+        if count + len(g) > IMPORT_EVENTS and count:
+            break
+        out.append(g)
+        count += len(g)
+    events = [e for g in reversed(out) for e in g if e.get("t") != "status"]
+    while events and events[0].get("t") in ("tool_result", "done"):  # buang potongan giliran yang terpotong
+        events.pop(0)
+    return events, start + end
+
+
+def _place(f):
+    if f["where"] == "herdr":
+        return "herdr " + (f.get("herdr") or {}).get("pane", "")
+    if f["where"] == "tmux":
+        t = f.get("tmux") or {}
+        return "tmux %s:%s.%s" % (t.get("session"), t.get("window"), t.get("pane"))
+    return "terminal " + (f.get("tty") or "")
+
+
+def cmd_mirror(args):
+    # mirror <pid> [herdr_pane]
+    pid = int(args[0] or 0)
+    pane = args[1] if len(args) > 1 else ""
+    found, herdr_bin = _running()
+    f = next((x for x in found if (pid and x["pid"] == pid) or (not pid and pane and (x.get("herdr") or {}).get("pane") == pane)), None)
+    if f is None:
+        raise SystemExit("this session is no longer running")
+    sid, tr = transcript_of(f["agent"], f["pid"], f.get("session") or "", f["cwd"], f.get("started") or 0)
+    key = (f["pid"], (f.get("herdr") or {}).get("pane", ""))
+    if os.path.isdir(ROOT):
+        for cid in os.listdir(ROOT):
+            m = read_meta(cid) or {}
+            mi = m.get("mirror") or {}
+            if mi and (mi.get("pid") or 0, mi.get("herdr_pane") or "") == key and m.get("session", "") == sid:
+                spawn_worker(cid)
+                print(jdump({"id": cid}))
+                return
+    t = f.get("tmux") or {}
+    mi = {"where": f["where"], "pid": f["pid"], "herdr_pane": (f.get("herdr") or {}).get("pane", ""),
+          "herdr_bin": herdr_bin or "", "tmux": "=%s:%s.%s" % (t["session"], t["window"], t["pane"]) if t else "",
+          "place": _place(f), "transcript": tr, "offset": 0}
+    events, mi["offset"] = _import_history(f["agent"], tr)
+    cid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
+    os.makedirs(chat_dir(cid), mode=0o700)
+    first_user = next((e["text"] for e in events if e["t"] == "user"), "")
+    meta = {"id": cid, "agent": f["agent"], "cwd": f["cwd"], "title": (f.get("title") or first_user.splitlines()[0] if first_user else f.get("title") or "")[:80],
+            "model": "", "mode": "", "session": sid, "created": now_ms(), "updated": now_ms(), "status": "idle",
+            "cost": 0.0, "tokens_in": 0, "tokens_out": 0, "mirror": mi}
+    write_meta(cid, meta)
+    with open(os.path.join(chat_dir(cid), "events.jsonl"), "w", encoding="utf-8") as fh:
+        n = 0
+        for e in events:
+            e["n"], e["at"] = n, now_ms()
+            fh.write(jdump(e) + "\n")
+            n += 1
+    spawn_worker(cid)
+    print(jdump({"id": cid}))
+
+
+class MirrorAdapter:
+    """Mengikuti sesi agent di tmux/herdr: transkrip → event chat, pesan → diketik ke pane-nya."""
+
+    POLL = 0.6
+
+    def __init__(self, w):
+        self.w = w
+        self.mi = dict(w.meta.get("mirror") or {})
+        self.agent = w.meta["agent"]
+        self.conv = TranscriptConverter(self.agent)
+        self.sent = []
+        self.stopped = threading.Event()
+        self.perm = None           # rid kartu izin yang sedang terbuka
+        self.perm_n = 0
+        self.screen = ""
+        self.ext = ""              # status terakhir dari luar (working/idle/blocked)
+        self.grace = 0.0           # setelah mengirim: jangan langsung dianggap idle
+        self.gone = False
+        self.saved_at = 0.0
+        self.partial = b""
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    # -- target
+    def _alive(self):
+        if self.mi.get("pid"):
+            return _proc_is(self.mi["pid"], self.agent)
+        if self.mi.get("where") == "herdr" and self.mi.get("herdr_pane"):
+            return _herdr_status(self.mi)[1]
+        return False
+
+    def _interactive(self):
+        return self.mi.get("where") in ("tmux", "herdr") and not self.gone
+
+    def _keys(self, *keys):
+        """Tombol dengan nama netral: enter, down, esc, atau satu karakter."""
+        if self.mi.get("where") == "herdr":
+            subprocess.run([self.mi.get("herdr_bin") or "herdr", "agent", "send-keys", self.mi["herdr_pane"], *keys],
+                           capture_output=True, timeout=5)
+        else:
+            names = {"enter": "Enter", "down": "Down", "esc": "Escape"}
+            for k in keys:
+                subprocess.run(["tmux", "send-keys", "-t", self.mi["tmux"], names.get(k, k)], capture_output=True, timeout=5)
+                time.sleep(0.08)
+
+    def _type(self, text):
+        if self.mi.get("where") == "herdr":
+            r = subprocess.run([self.mi.get("herdr_bin") or "herdr", "agent", "prompt", self.mi["herdr_pane"], text],
+                               capture_output=True, text=True, timeout=15)
+            if r.returncode != 0:
+                raise RuntimeError((r.stderr or r.stdout or "herdr prompt failed").strip()[:300])
+        else:
+            subprocess.run(["tmux", "load-buffer", "-b", "termx", "-"], input=text.encode(), capture_output=True, timeout=5, check=True)
+            subprocess.run(["tmux", "paste-buffer", "-d", "-p", "-b", "termx", "-t", self.mi["tmux"]], capture_output=True, timeout=5, check=True)
+            time.sleep(0.25)
+            subprocess.run(["tmux", "send-keys", "-t", self.mi["tmux"], "Enter"], capture_output=True, timeout=5, check=True)
+
+    # -- perintah dari aplikasi
+    def send(self, text):
+        if not self._interactive() or not self._alive():
+            return self._continue_here(text)
+        self.sent.append(text)
+        self.grace = time.time() + 8
+        try:
+            self._type(text)
+        except Exception as e:
+            self.sent.remove(text)
+            self.w.emit({"t": "error", "msg": "could not send to %s: %s" % (self.mi.get("place"), e)})
+            self.w.set_busy(False)
+
+    def _continue_here(self, text):
+        """Proses aslinya tidak bisa diketik (terminal lain / sudah keluar): lanjutkan sesi di TermX."""
+        cls = ADAPTERS.get(self.agent)
+        if cls is None or not self.w.meta.get("session"):
+            self.w.emit({"t": "error", "msg": "This session can't receive messages from TermX. Open it in its terminal instead."})
+            return self.w.set_busy(False)
+        self.stopped.set()
+        self.w.save_meta(mirror=None)
+        self.w.emit({"t": "note", "msg": "Continuing this conversation in TermX. The original terminal won't show these messages."})
+        self.w.emit({"t": "mirror_end"})
+        self.w.adapter = cls(self.w)
+        self.w.adapter.send(text)
+
+    def permission(self, rid, allow, always):
+        if rid != self.perm:
+            return
+        if self.agent == "codex":
+            keys = ["a"] if (allow and always) else ["y"] if allow else ["esc"]
+        elif self.agent == "claude":
+            keys = ["down", "enter"] if (allow and always) else ["enter"] if allow else ["esc"]
+        else:
+            keys = ["enter"] if allow else ["esc"]
+        try:
+            self._keys(*keys)
+        except Exception as e:
+            self.w.emit({"t": "error", "msg": "could not answer: %s" % e})
+            return
+        self.perm = None
+        self.w.emit({"t": "perm_done", "rid": rid, "allow": allow})
+
+    def set_model(self, model):
+        self.w.emit({"t": "note", "msg": "Change the model in the agent's own session (e.g. /model)."})
+
+    def set_mode(self, mode):
+        self.set_model(mode)
+
+    def interrupt(self):
+        if self._interactive():
+            try:
+                self._keys("esc")
+            except Exception:
+                pass
+
+    def close(self):
+        self.stopped.set()
+        self._save(force=True)
+
+    # -- mengikuti
+    def _save(self, force=False):
+        if force or time.time() - self.saved_at > 4:
+            self.saved_at = time.time()
+            if not self.stopped.is_set() or force:
+                if self.w.meta.get("mirror") is not None:
+                    self.w.save_meta(mirror=self.mi)
+
+    def _emit_events(self, events):
+        for e in events:
+            t = e.get("t")
+            if t == "user":
+                if e["text"] in self.sent:  # pesan dari aplikasi sudah tampil
+                    self.sent.remove(e["text"])
+                    continue
+                self.w.emit(e)
+                if not self.w.busy:
+                    self.w.set_busy(True)
+            elif t == "status":
+                if not self.w.busy:
+                    self.w.set_busy(True)
+            elif t == "done":
+                self._close_perm(True)
+                self.w.emit(e)
+                if self.w.busy:
+                    self.w.set_busy(False)
+            else:
+                self.w.emit(e)
+
+    def _close_perm(self, allow):
+        if self.perm:
+            self.w.emit({"t": "perm_done", "rid": self.perm, "allow": allow})
+            self.perm = None
+
+    def _follow_transcript(self):
+        if self.agent == "claude" and self.mi.get("pid"):
+            sid = _claude_session(self.mi["pid"]).get("sessionId")
+            if sid and sid != self.w.meta.get("session"):  # /clear atau /resume di terminal: sesi baru
+                tr = _claude_transcript(sid)
+                if tr:
+                    self.w.save_meta(session=sid)
+                    self.mi.update(transcript=tr, offset=0)
+                    self.partial = b""
+                    self.w.emit({"t": "note", "msg": "A new conversation started in the terminal."})
+        if self.agent == "codex" and not self.mi.get("transcript"):
+            sid, tr = transcript_of("codex", self.mi.get("pid"), self.w.meta.get("session"), self.w.meta["cwd"], 0)
+            if tr:
+                self.w.save_meta(session=sid)
+                self.mi.update(transcript=tr, offset=0)
+        path = self.mi.get("transcript")
+        if not path:
+            return False
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return True
+        off = self.mi.get("offset") or 0
+        if size < off:
+            off = 0
+        if size == off:
+            return True
+        with open(path, "rb") as f:
+            f.seek(off)
+            data = f.read(min(size - off, 4 * 1024 * 1024))
+        self.mi["offset"] = off + len(data)
+        data = self.partial + data
+        cut = data.rfind(b"\n") + 1
+        self.partial = data[cut:]
+        for line in data[:cut].decode("utf-8", "replace").splitlines():
+            if line.strip():
+                self._emit_events(self.conv.convert(line))
+        self._save()
+        return True
+
+    def _status(self):
+        """working / idle / blocked dari herdr atau berkas sesi Claude; '' bila tak diketahui."""
+        if self.mi.get("where") == "herdr" and self.mi.get("herdr_pane"):
+            s, ok = _herdr_status(self.mi)
+            return s
+        if self.agent == "claude" and self.mi.get("pid"):
+            s = _claude_session(self.mi["pid"]).get("status") or ""
+            return "working" if s == "busy" else s
+        return ""
+
+    def _loop(self):
+        tick = 0
+        has_transcript = True
+        while not self.stopped.is_set():
+            time.sleep(self.POLL)
+            tick += 1
+            try:
+                has_transcript = self._follow_transcript()
+                if tick % 2:
+                    continue
+                if not self._alive():
+                    if not self.gone:
+                        self.gone = True
+                        self._close_perm(False)
+                        self.w.emit({"t": "note", "msg": "The agent in %s has exited. Send a message to continue here." % self.mi.get("place")})
+                        if self.w.busy:
+                            self.w.set_busy(False)
+                    continue
+                st = self._status()
+                screen = ""
+                if self._interactive() and (not has_transcript or st in ("working", "blocked", "") or self.perm):
+                    screen = _screen(self.mi, 40)
+                blocked = st == "blocked" or (self._interactive() and st != "idle" and bool(BLOCKED_RE.search("\n".join(screen.splitlines()[-14:]))))
+                if not has_transcript and screen and screen != self.screen:
+                    self.screen = screen
+                    self.screen_at = time.time()
+                    self.w.emit({"t": "screen", "text": clip(screen, 5000)})
+                if blocked and not self.perm:
+                    self.perm_n += 1
+                    self.perm = "s%d-%d" % (int(time.time()), self.perm_n)
+                    lines = [x for x in (screen or _screen(self.mi, 40)).splitlines() if x.strip()][-14:]
+                    self.w.emit({"t": "perm", "rid": self.perm, "tool": "Approval in %s" % self.mi.get("place"),
+                                 "desc": "", "input": {"summary": "\n".join(lines)}, "always": self.agent in ("claude", "codex")})
+                    if not self.w.busy:
+                        self.w.set_busy(True)
+                elif not blocked and self.perm:
+                    self._close_perm(True)
+                if st == "working" and not self.w.busy:
+                    self.w.set_busy(True)
+                elif st in ("idle", "done") and self.w.busy and time.time() > self.grace and not has_transcript:
+                    self.w.set_busy(False)
+                elif not st and not has_transcript and self.w.busy and time.time() > self.grace \
+                        and time.time() - getattr(self, "screen_at", 0) > 4:
+                    self.w.set_busy(False)  # tanpa sumber status: layar diam = selesai
+                elif st in ("idle", "done") and self.w.busy and time.time() > self.grace + 20:
+                    self.w.set_busy(False)  # transkrip tidak mencatat akhir giliran (mis. dibatalkan)
+                self.ext = st
+            except Exception as e:
+                self.w.emit({"t": "stderr", "msg": "mirror: %s" % e})
 
 
 COMMANDS = {
     "detect": cmd_detect, "list": cmd_list, "new": cmd_new, "attach": cmd_attach, "rm": cmd_rm,
-    "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "_worker": cmd_worker,
+    "stop": cmd_stop, "rename": cmd_rename, "running": cmd_running, "mirror": cmd_mirror, "_worker": cmd_worker,
 }
 
 
@@ -1451,7 +2033,7 @@ def main():
         if len(sys.argv) > 1 and sys.argv[1] == "version":
             print(VERSION)
             return
-        raise SystemExit("usage: agentd.py detect|list|new|attach|rm|stop|rename|running|version")
+        raise SystemExit("usage: agentd.py detect|list|new|attach|rm|stop|rename|running|mirror|version")
     COMMANDS[sys.argv[1]](sys.argv[2:])
 
 
